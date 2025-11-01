@@ -4,7 +4,8 @@
   "description": "VENTECH E-Commerce Backend API",
   "main": "dist/index.js",
   "scripts": {
-    "dev": "nodemon",
+    "dev": "kill-port.bat && nodemon",
+    "dev:clean": "kill-port.bat && nodemon",
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"

@@ -316,10 +316,16 @@ export class OrderController {
       if (wishlistError) throw wishlistError;
 
       if (wishlistData && wishlistData.length > 0) {
-        const emailResult = await enhancedEmailService.sendNewsletter(
-          userData.id, 
-          'Items in your wishlist are waiting!', 
-          'Check out these items you saved for later...'
+        // Format wishlist items for email
+        const wishlistItems = wishlistData.map((item: any) => ({
+          product_name: item.product?.name || 'Unknown Product',
+          product_description: item.product?.description || '',
+          product_price: item.product?.discount_price || item.product?.price || 0,
+        }));
+
+        const emailResult = await enhancedEmailService.sendWishlistReminder(
+          userData.id,
+          wishlistItems
         );
         if (emailResult.skipped) {
           console.log(`Wishlist reminder email skipped: ${emailResult.reason}`);
@@ -358,10 +364,9 @@ export class OrderController {
 
       if (userError) throw userError;
 
-      const emailResult = await enhancedEmailService.sendNewsletter(
+      const emailResult = await enhancedEmailService.sendCartAbandonmentReminder(
         userData.id,
-        'Complete your purchase!',
-        'You have items in your cart waiting to be purchased...'
+        cart_items || []
       );
       if (emailResult.skipped) {
         console.log(`Cart abandonment reminder email skipped: ${emailResult.reason}`);

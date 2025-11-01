@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '../utils/supabaseClient';
+import { settingsService } from './settings.service';
 
 interface EmailOptions {
   to: string;
@@ -107,6 +108,20 @@ class EnhancedEmailService {
   // Enhanced order confirmation email with preference check
   async sendOrderConfirmation(orderData: any): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
+      // Check if email notifications are enabled in settings
+      const emailNotificationsEnabled = await settingsService.isEnabled('email_notifications_enabled');
+      if (!emailNotificationsEnabled) {
+        console.log('Email notifications are disabled in settings');
+        return { success: true, skipped: true, reason: 'Email notifications disabled in settings' };
+      }
+
+      // Check if order confirmation emails are enabled
+      const orderConfirmationEnabled = await settingsService.isEnabled('email_order_confirmation');
+      if (!orderConfirmationEnabled) {
+        console.log('Order confirmation emails are disabled in settings');
+        return { success: true, skipped: true, reason: 'Order confirmation emails disabled in settings' };
+      }
+
       // Check if user wants to receive transactional emails
       const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
       
@@ -143,6 +158,29 @@ class EnhancedEmailService {
   // Enhanced order status update email with preference check
   async sendOrderStatusUpdate(orderData: any, newStatus: string): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
+      // Check if email notifications are enabled in settings
+      const emailNotificationsEnabled = await settingsService.isEnabled('email_notifications_enabled');
+      if (!emailNotificationsEnabled) {
+        console.log('Email notifications are disabled in settings');
+        return { success: true, skipped: true, reason: 'Email notifications disabled in settings' };
+      }
+
+      // Check specific email type settings
+      let emailTypeEnabled = false;
+      if (newStatus === 'shipped') {
+        emailTypeEnabled = await settingsService.isEnabled('email_order_shipped');
+      } else if (newStatus === 'delivered') {
+        emailTypeEnabled = await settingsService.isEnabled('email_order_delivered');
+      } else {
+        // For other statuses, check general order confirmation setting
+        emailTypeEnabled = await settingsService.isEnabled('email_order_confirmation');
+      }
+
+      if (!emailTypeEnabled) {
+        console.log(`Email type ${newStatus} is disabled in settings`);
+        return { success: true, skipped: true, reason: `Email type ${newStatus} disabled in settings` };
+      }
+
       // Check if user wants to receive transactional emails
       const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
       
@@ -177,6 +215,13 @@ class EnhancedEmailService {
   // Enhanced newsletter email with preference check
   async sendNewsletter(userId: string, subject: string, content: string): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
+      // Check if email notifications are enabled in settings
+      const emailNotificationsEnabled = await settingsService.isEnabled('email_notifications_enabled');
+      if (!emailNotificationsEnabled) {
+        console.log('Email notifications are disabled in settings');
+        return { success: true, skipped: true, reason: 'Email notifications disabled in settings' };
+      }
+
       // Check if user wants to receive newsletter emails
       const shouldSend = await this.shouldSendEmail(userId, 'newsletter');
       
@@ -235,6 +280,145 @@ class EnhancedEmailService {
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${(item.price * item.quantity).toFixed(2)}</td>
       </tr>`
     ).join('');
+  }
+
+  // Enhanced wishlist reminder email with settings check
+  async sendWishlistReminder(userId: string, wishlistItems: any[]): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
+    try {
+      // Check if email notifications are enabled in settings
+      const emailNotificationsEnabled = await settingsService.isEnabled('email_notifications_enabled');
+      if (!emailNotificationsEnabled) {
+        console.log('Email notifications are disabled in settings');
+        return { success: true, skipped: true, reason: 'Email notifications disabled in settings' };
+      }
+
+      // Check if wishlist reminder emails are enabled
+      const wishlistRemindersEnabled = await settingsService.isEnabled('email_wishlist_reminders');
+      if (!wishlistRemindersEnabled) {
+        console.log('Wishlist reminder emails are disabled in settings');
+        return { success: true, skipped: true, reason: 'Wishlist reminder emails disabled in settings' };
+      }
+
+      // Check if user wants to receive emails
+      const shouldSend = await this.shouldSendEmail(userId, 'marketing');
+      if (!shouldSend) {
+        console.log(`Skipping wishlist reminder email for user ${userId} - email notifications disabled`);
+        return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+      }
+
+      // Get user email
+      const { data: user, error } = await supabaseAdmin
+        .from('users')
+        .select('email, first_name, last_name')
+        .eq('id', userId)
+        .single();
+
+      if (error || !user) {
+        return { success: false, reason: 'User not found' };
+      }
+
+      const templatePath = path.join(__dirname, '../../email-templates/wishlist-reminder.html');
+      let template = fs.readFileSync(templatePath, 'utf8');
+
+      const customerName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Customer';
+      template = template
+        .replace('{{CUSTOMER_NAME}}', customerName)
+        .replace('{{WISHLIST_ITEMS}}', this.formatWishlistItems(wishlistItems));
+
+      const success = await this.sendEmail({
+        to: user.email,
+        subject: 'Items in your wishlist are waiting!',
+        html: template,
+      });
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending wishlist reminder:', error);
+      return { success: false, reason: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Enhanced cart abandonment reminder email with settings check
+  async sendCartAbandonmentReminder(userId: string, cartItems: any[]): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
+    try {
+      // Check if email notifications are enabled in settings
+      const emailNotificationsEnabled = await settingsService.isEnabled('email_notifications_enabled');
+      if (!emailNotificationsEnabled) {
+        console.log('Email notifications are disabled in settings');
+        return { success: true, skipped: true, reason: 'Email notifications disabled in settings' };
+      }
+
+      // Check if cart abandonment emails are enabled
+      const cartAbandonmentEnabled = await settingsService.isEnabled('email_cart_abandonment');
+      if (!cartAbandonmentEnabled) {
+        console.log('Cart abandonment emails are disabled in settings');
+        return { success: true, skipped: true, reason: 'Cart abandonment emails disabled in settings' };
+      }
+
+      // Check if user wants to receive emails
+      const shouldSend = await this.shouldSendEmail(userId, 'marketing');
+      if (!shouldSend) {
+        console.log(`Skipping cart abandonment reminder email for user ${userId} - email notifications disabled`);
+        return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+      }
+
+      // Get user email
+      const { data: user, error } = await supabaseAdmin
+        .from('users')
+        .select('email, first_name, last_name')
+        .eq('id', userId)
+        .single();
+
+      if (error || !user) {
+        return { success: false, reason: 'User not found' };
+      }
+
+      const templatePath = path.join(__dirname, '../../email-templates/cart-abandonment.html');
+      let template = fs.readFileSync(templatePath, 'utf8');
+
+      const customerName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Customer';
+      template = template
+        .replace('{{CUSTOMER_NAME}}', customerName)
+        .replace('{{CART_ITEMS}}', this.formatCartItems(cartItems));
+
+      const success = await this.sendEmail({
+        to: user.email,
+        subject: 'Don\'t forget your items!',
+        html: template,
+      });
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending cart abandonment reminder:', error);
+      return { success: false, reason: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Format wishlist items for email
+  private formatWishlistItems(items: any[]): string {
+    if (!items || items.length === 0) return '<p>No items in wishlist</p>';
+    
+    return items.map(item => `
+      <div style="padding: 15px; border-bottom: 1px solid #eee;">
+        <h4 style="margin: 0 0 10px 0; color: #FF7A19;">${item.product_name || 'Unknown Product'}</h4>
+        <p style="margin: 0; color: #666;">${item.product_description || ''}</p>
+        <p style="margin: 5px 0 0 0; font-weight: bold; color: #333;">GHS ${(item.product_price || 0).toFixed(2)}</p>
+      </div>
+    `).join('');
+  }
+
+  // Format cart items for email
+  private formatCartItems(items: any[]): string {
+    if (!items || items.length === 0) return '<p>No items in cart</p>';
+    
+    return items.map(item => `
+      <tr>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.product_name || 'Unknown Product'}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity || 1}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${(item.price || 0).toFixed(2)}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
+      </tr>
+    `).join('');
   }
 
   // Investment email (no preference check needed - always send to admin)

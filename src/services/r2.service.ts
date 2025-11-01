@@ -121,8 +121,31 @@ export const uploadMultipleToR2 = async (
  */
 export const deleteFromR2 = async (fileUrl: string): Promise<{ success: boolean; error?: string }> => {
   try {
-    // Extract key from URL
-    const key = fileUrl.replace(`${PUBLIC_URL}/`, '');
+    // Extract key from URL - handle both custom domain and R2.dev formats
+    let key = fileUrl;
+    
+    // Remove protocol and domain
+    if (PUBLIC_URL) {
+      // Remove custom domain or R2.dev base URL
+      const baseUrl = PUBLIC_URL.endsWith('/') ? PUBLIC_URL.slice(0, -1) : PUBLIC_URL;
+      key = key.replace(baseUrl, '').replace(`/${BUCKET_NAME}`, '');
+    }
+    
+    // Handle R2.dev format if still present
+    if (key.includes('.r2.dev/')) {
+      key = key.split('.r2.dev/')[1];
+      if (key.startsWith(`${BUCKET_NAME}/`)) {
+        key = key.replace(`${BUCKET_NAME}/`, '');
+      }
+    }
+    
+    // Remove leading slashes
+    key = key.replace(/^\/+/, '');
+    
+    // Remove bucket name if still present
+    if (key.startsWith(`${BUCKET_NAME}/`)) {
+      key = key.replace(`${BUCKET_NAME}/`, '');
+    }
 
     const command = new DeleteObjectCommand({
       Bucket: BUCKET_NAME,
