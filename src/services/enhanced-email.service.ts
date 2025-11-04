@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '../utils/supabaseClient';
@@ -22,18 +22,29 @@ interface UserPreferences {
 }
 
 class EnhancedEmailService {
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
+  private supportEmail: string;
+  private noreplyEmail: string;
 
   constructor() {
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASS,
-      },
-    });
+    const resendApiKey = process.env.RESEND_API_KEY;
+    
+    if (!resendApiKey) {
+      console.error('❌ RESEND_API_KEY is missing in .env file');
+      throw new Error('RESEND_API_KEY is required');
+    }
+
+    this.resend = new Resend(resendApiKey);
+    
+    // Support email for customer-facing emails (order confirmations, replies, etc.)
+    this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'VENTECH GADGETS <support@ventechgadgets.com>';
+    
+    // No-reply email for automated notifications (system updates, password resets, etc.)
+    this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'VENTECH GADGETS <noreply@ventechgadgets.com>';
+    
+    console.log('✅ Resend email service initialized');
+    console.log(`   Support Email: ${this.supportEmail}`);
+    console.log(`   No-Reply Email: ${this.noreplyEmail}`);
   }
 
   // Get user communication preferences
@@ -86,18 +97,31 @@ class EnhancedEmailService {
     }
   }
 
-  async sendEmail(options: EmailOptions): Promise<boolean> {
+  async sendEmail(options: EmailOptions, useSupportEmail: boolean = true): Promise<boolean> {
     try {
-      const mailOptions = {
-        from: `"VENTECH Gadgets" <${process.env.SMTP_USER}>`,
+      // Convert attachments to Resend format if provided
+      const attachments = options.attachments?.map(att => ({
+        filename: att.filename,
+        content: att.content.toString('base64'),
+      })) || [];
+
+      // Use support email for customer-facing emails, noreply for automated notifications
+      const fromEmail = useSupportEmail ? this.supportEmail : this.noreplyEmail;
+
+      const { data, error } = await this.resend.emails.send({
+        from: fromEmail,
         to: options.to,
         subject: options.subject,
         html: options.html,
-        attachments: options.attachments,
-      };
+        attachments: attachments.length > 0 ? attachments : undefined,
+      });
 
-      const result = await this.transporter.sendMail(mailOptions);
-      console.log('Email sent successfully:', result.messageId);
+      if (error) {
+        console.error('Error sending email via Resend:', error);
+        return false;
+      }
+
+      console.log(`✅ Email sent successfully via Resend [${useSupportEmail ? 'Support' : 'No-Reply'}]:`, data?.id);
       return true;
     } catch (error) {
       console.error('Error sending email:', error);
@@ -143,11 +167,12 @@ class EnhancedEmailService {
         .replace('{{ITEMS_LIST}}', this.formatOrderItems(orderData.items))
         .replace('{{ORDER_NOTES}}', orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '');
 
+      // Use support email for order confirmations (customers can reply)
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Confirmation - ${orderData.order_number}`,
         html: template,
-      });
+      }, true); // true = use support email
 
       return { success };
     } catch (error) {
@@ -182,12 +207,15 @@ class EnhancedEmailService {
         return { success: true, skipped: true, reason: `Email type ${newStatus} disabled in settings` };
       }
 
-      // Check if user wants to receive transactional emails
-      const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
-      
-      if (!shouldSend) {
-        console.log(`Skipping order status update email for user ${orderData.user_id} - email notifications disabled`);
-        return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+      // Check if user wants to receive transactional emails (only for logged-in users)
+      // For guest orders, always send status update emails
+      if (orderData.user_id) {
+        const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
+        
+        if (!shouldSend) {
+          console.log(`Skipping order status update email for user ${orderData.user_id} - email notifications disabled`);
+          return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+        }
       }
 
       const templatePath = path.join(__dirname, '../../email-templates/order-status-update.html');
@@ -200,11 +228,12 @@ class EnhancedEmailService {
         .replace('{{ORDER_DATE}}', new Date(orderData.created_at).toLocaleDateString())
         .replace('{{TOTAL_AMOUNT}}', `GHS ${orderData.total.toFixed(2)}`);
 
+      // Use support email for order status updates (customers can reply)
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Update - ${orderData.order_number}`,
         html: template,
-      });
+      }, true); // true = use support email
 
       return { success };
     } catch (error) {
@@ -242,11 +271,12 @@ class EnhancedEmailService {
         return { success: false, reason: 'User not found' };
       }
 
+      // Use noreply for newsletters (automated, no reply needed)
       const success = await this.sendEmail({
         to: user.email,
         subject: subject,
         html: content,
-      });
+      }, false); // false = use noreply email
 
       return { success };
     } catch (error) {
@@ -352,11 +382,12 @@ class EnhancedEmailService {
         .replace(/{{ITEMS_LIST}}/g, this.formatOrderItems(orderData.items || []))
         .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '');
 
+      // Use support email for admin notifications (they can reply)
       const success = await this.sendEmail({
         to: 'ventechgadget@gmail.com',
         subject: `New Order Received - ${orderData.order_number}`,
         html: template,
-      });
+      }, true); // true = use support email
 
       return { success };
     } catch (error) {
@@ -408,11 +439,12 @@ class EnhancedEmailService {
         .replace('{{CUSTOMER_NAME}}', customerName)
         .replace('{{WISHLIST_ITEMS}}', this.formatWishlistItems(wishlistItems));
 
+      // Use noreply for wishlist reminders (automated marketing)
       const success = await this.sendEmail({
         to: user.email,
         subject: 'Items in your wishlist are waiting!',
         html: template,
-      });
+      }, false); // false = use noreply email
 
       return { success };
     } catch (error) {
@@ -464,11 +496,12 @@ class EnhancedEmailService {
         .replace('{{CUSTOMER_NAME}}', customerName)
         .replace('{{CART_ITEMS}}', this.formatCartItems(cartItems));
 
+      // Use noreply for cart abandonment (automated marketing)
       const success = await this.sendEmail({
         to: user.email,
         subject: 'Don\'t forget your items!',
         html: template,
-      });
+      }, false); // false = use noreply email
 
       return { success };
     } catch (error) {
@@ -542,11 +575,12 @@ class EnhancedEmailService {
         </html>
       `;
 
+      // Use support email for investment requests (admin can reply)
       const success = await this.sendEmail({
         to: 'ventechgadgets@gmail.com',
         subject: `New Investment Request - ${fullName}`,
         html: html,
-      });
+      }, true); // true = use support email
 
       return { success };
     } catch (error) {

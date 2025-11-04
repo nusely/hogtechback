@@ -151,12 +151,28 @@ export class PaymentController {
             transactionData.user_id = transaction.metadata.user_id;
           }
 
-          // Try to find associated order by payment reference
-          if (transaction.metadata?.payment_reference) {
+          // Try to find associated order by payment reference or order_id in metadata
+          if (transaction.metadata?.order_id) {
+            // Direct order_id from metadata
             const { data: orderData } = await supabaseAdmin
               .from('orders')
-              .select('id, user_id')
-              .eq('order_number', transaction.metadata.payment_reference.split('-')[0] + '-' + transaction.metadata.payment_reference.split('-')[1])
+              .select('id, user_id, order_number')
+              .eq('id', transaction.metadata.order_id)
+              .maybeSingle();
+            
+            if (orderData) {
+              transactionData.order_id = orderData.id;
+              if (!transactionData.user_id && orderData.user_id) {
+                transactionData.user_id = orderData.user_id;
+              }
+            }
+          } else if (transaction.metadata?.payment_reference) {
+            // Try to find order by payment_reference (which might be order_number)
+            const { data: orderData } = await supabaseAdmin
+              .from('orders')
+              .select('id, user_id, order_number, payment_reference')
+              .eq('payment_reference', transaction.metadata.payment_reference)
+              .or(`order_number.eq.${transaction.metadata.payment_reference}`)
               .maybeSingle();
             
             if (orderData) {

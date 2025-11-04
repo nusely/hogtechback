@@ -9,6 +9,41 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PORT
+        value: 5000
       - key: FRONTEND_URL
         value: https://ventechwebsite.vercel.app
+      # Supabase Configuration
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # JWT Secret
+      - key: JWT_SECRET
+        sync: false
+      # Resend Email Configuration (Required for emails to work)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_SUPPORT_EMAIL
+        value: VENTECH GADGETS <support@ventechgadgets.com>
+      - key: RESEND_NOREPLY_EMAIL
+        value: VENTECH GADGETS <noreply@ventechgadgets.com>
+      # Cloudflare R2 Storage (if using)
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET_NAME
+        sync: false
+      - key: R2_PUBLIC_URL
+        value: https://files.ventechgadgets.com
+      # Paystack Payment Gateway
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
 

@@ -7,14 +7,22 @@ export class OrderController {
   // Get all orders (admin)
   async getAllOrders(req: Request, res: Response) {
     try {
-      const { data, error } = await supabaseAdmin
+      const { user_id } = req.query;
+      
+      let query = supabaseAdmin
         .from('orders')
         .select(`
           *,
           user:users!orders_user_id_fkey(id, first_name, last_name, email),
           order_items:order_items(*)
-        `)
-        .order('created_at', { ascending: false });
+        `);
+
+      // Filter by user_id if provided
+      if (user_id) {
+        query = query.eq('user_id', user_id as string);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
 
@@ -90,20 +98,39 @@ export class OrderController {
 
       // Send email notification
       try {
-        const customerName = `${orderData.user.first_name || ''} ${orderData.user.last_name || ''}`.trim() || 'Customer';
-        const emailData = {
-          ...orderData,
-          customer_name: customerName,
-          customer_email: orderData.user.email,
-        };
+        // Determine customer email and name
+        let customerEmail: string | null = null;
+        let customerName: string = 'Customer';
+        
+        if (orderData.user && orderData.user.email) {
+          // Logged-in user
+          customerEmail = orderData.user.email;
+          customerName = `${orderData.user.first_name || ''} ${orderData.user.last_name || ''}`.trim() || 'Customer';
+        } else if (orderData.shipping_address && (orderData.shipping_address as any)?.email) {
+          // Guest checkout - get email from shipping address
+          customerEmail = (orderData.shipping_address as any).email;
+          customerName = orderData.shipping_address?.full_name || orderData.shipping_address?.first_name || 'Guest Customer';
+        }
 
-        const emailResult = await enhancedEmailService.sendOrderStatusUpdate(emailData, status);
-        if (emailResult.skipped) {
-          console.log(`Order status update email skipped: ${emailResult.reason}`);
-        } else if (emailResult.success) {
-          console.log('Order status update email sent successfully');
+        if (customerEmail) {
+          const emailData = {
+            ...orderData,
+            customer_name: customerName,
+            customer_email: customerEmail,
+            items: orderData.order_items || [],
+            delivery_address: orderData.shipping_address || orderData.delivery_address, // For email template compatibility
+          };
+
+          const emailResult = await enhancedEmailService.sendOrderStatusUpdate(emailData, status);
+          if (emailResult.skipped) {
+            console.log(`Order status update email skipped: ${emailResult.reason}`);
+          } else if (emailResult.success) {
+            console.log('Order status update email sent successfully to', customerEmail);
+          } else {
+            console.error('Failed to send order status update email:', emailResult.reason);
+          }
         } else {
-          console.error('Failed to send order status update email:', emailResult.reason);
+          console.warn('No email found for order status update. Order:', orderData.id);
         }
       } catch (emailError) {
         console.error('Failed to send order status update email:', emailError);
@@ -207,6 +234,12 @@ export class OrderController {
         payment_reference,
       } = req.body;
 
+      // Map delivery_address to shipping_address and include delivery_option in the address JSON
+      const shippingAddress = delivery_address ? {
+        ...delivery_address,
+        delivery_option: delivery_option || { name: 'Standard', price: delivery_fee || 0 },
+      } : null;
+
       // Create order
       const { data: orderData, error: orderError } = await supabaseAdmin
         .from('orders')
@@ -216,11 +249,10 @@ export class OrderController {
           subtotal,
           discount,
           tax,
-          delivery_fee,
+          shipping_fee: delivery_fee || 0,
           total,
           payment_method,
-          delivery_address,
-          delivery_option: delivery_option || { name: 'Standard', price: delivery_fee || 0 },
+          shipping_address: shippingAddress,
           notes: notes || null,
           payment_reference: payment_reference || null,
           status: 'pending',
@@ -239,7 +271,7 @@ export class OrderController {
         product_image: item.product_image,
         quantity: item.quantity,
         unit_price: item.unit_price,
-        subtotal: item.subtotal,
+        total_price: item.subtotal || item.total_price || (item.unit_price * item.quantity), // Use total_price as per schema
         selected_variants: item.selected_variants,
       }));
 
@@ -249,24 +281,7 @@ export class OrderController {
 
       if (itemsError) throw itemsError;
 
-      // Link transaction to order if payment_reference exists
-      if (orderData.payment_reference) {
-        try {
-          await supabaseAdmin
-            .from('transactions')
-            .update({
-              order_id: orderData.id,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('transaction_reference', orderData.payment_reference)
-            .or(`paystack_reference.eq.${orderData.payment_reference}`);
-        } catch (linkError) {
-          console.error('Error linking transaction to order:', linkError);
-          // Don't fail order creation if transaction linking fails
-        }
-      }
-
-      // Get user data for email (if logged in)
+      // Get user data for email (if logged in) - moved before transaction creation
       let userData: any = null;
       if (user_id) {
         const { data, error: userError } = await supabaseAdmin
@@ -280,23 +295,135 @@ export class OrderController {
         }
       }
 
-      // Send order confirmation email to customer (if logged in)
+      // Create transaction record for this order (even if pending)
+      // This ensures all orders have a transaction record for tracking
+      try {
+        // Determine customer email and name
+        let customerEmail: string | null = null;
+        let customerName: string = 'Customer';
+        
+        if (userData && userData.email) {
+          customerEmail = userData.email;
+          customerName = userData.full_name || `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'Customer';
+        } else if (shippingAddress && (shippingAddress as any)?.email) {
+          customerEmail = (shippingAddress as any).email;
+          customerName = shippingAddress?.full_name || shippingAddress?.first_name || 'Guest Customer';
+        }
+
+        const transactionData: any = {
+          order_id: orderData.id,
+          user_id: user_id || null,
+          transaction_reference: payment_reference || `TXN-${orderData.id.slice(0, 8)}`,
+          payment_method: payment_method || 'cash_on_delivery',
+          payment_provider: payment_method === 'paystack' ? 'paystack' : payment_method === 'cash_on_delivery' ? 'cash' : 'other',
+          amount: total,
+          currency: 'GHS',
+          status: payment_method === 'cash_on_delivery' ? 'pending' : 'pending', // Will be updated when payment verified
+          payment_status: payment_method === 'cash_on_delivery' ? 'pending' : 'pending', // Will be updated when payment verified
+          customer_email: customerEmail || 'no-email@example.com', // Required field - provide default if missing
+          metadata: {
+            order_number: order_number,
+            customer_name: customerName, // Store customer name in metadata
+            subtotal,
+            discount,
+            tax,
+            shipping_fee: delivery_fee || 0,
+            total,
+            payment_method,
+            order_id: orderData.id,
+          },
+          initiated_at: new Date().toISOString(),
+        };
+
+        // If payment_reference exists, try to link to existing transaction first
+        if (payment_reference) {
+          const { data: existingTransaction } = await supabaseAdmin
+            .from('transactions')
+            .select('id, metadata')
+            .eq('transaction_reference', payment_reference)
+            .or(`paystack_reference.eq.${payment_reference}`)
+            .maybeSingle();
+
+          if (existingTransaction) {
+            // Update existing transaction with order_id
+            const existingMetadata = (existingTransaction as any).metadata || {};
+            await supabaseAdmin
+              .from('transactions')
+              .update({
+                order_id: orderData.id,
+                user_id: user_id || null,
+                customer_email: customerEmail,
+                metadata: {
+                  ...existingMetadata,
+                  customer_name: customerName,
+                  order_number: order_number,
+                },
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', existingTransaction.id);
+            
+            console.log('✅ Linked existing transaction to order:', orderData.order_number);
+          } else {
+            // Create new transaction
+            transactionData.paystack_reference = payment_reference;
+            const { error: transactionError } = await supabaseAdmin
+              .from('transactions')
+              .insert([transactionData]);
+
+            if (transactionError) {
+              console.error('Error creating transaction:', transactionError);
+            } else {
+              console.log('✅ Created transaction for order:', orderData.order_number);
+            }
+          }
+        } else {
+          // Create transaction for cash on delivery or orders without payment reference
+          const { error: transactionError } = await supabaseAdmin
+            .from('transactions')
+            .insert([transactionData]);
+
+          if (transactionError) {
+            console.error('Error creating transaction:', transactionError);
+          } else {
+            console.log('✅ Created transaction for order:', orderData.order_number);
+          }
+        }
+      } catch (transactionError) {
+        console.error('Error creating/linking transaction:', transactionError);
+        // Don't fail order creation if transaction creation fails
+      }
+
+      // Determine customer email and name for order confirmation
+      let customerEmail: string | null = null;
+      let customerName: string = 'Customer';
+      
       if (userData && userData.email) {
+        // Logged-in user
+        customerEmail = userData.email;
+        customerName = userData.full_name || `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'Customer';
+      } else if (shippingAddress && (shippingAddress as any)?.email) {
+        // Guest checkout - get email from shipping address
+        customerEmail = (shippingAddress as any).email;
+        customerName = shippingAddress?.full_name || shippingAddress?.first_name || 'Guest Customer';
+      }
+
+      // Send order confirmation email to customer
+      if (customerEmail) {
         try {
-          const customerName = userData.full_name || `${userData.first_name || ''} ${userData.last_name || ''}`.trim() || 'Customer';
           const emailData = {
             ...orderData,
             customer_name: customerName,
-            customer_email: userData.email,
+            customer_email: customerEmail,
             items: orderItems,
             notes: orderData.notes || null,
+            delivery_address: shippingAddress, // Keep for email template compatibility
           };
 
           const emailResult = await enhancedEmailService.sendOrderConfirmation(emailData);
           if (emailResult.skipped) {
             console.log(`Order confirmation email skipped: ${emailResult.reason}`);
           } else if (emailResult.success) {
-            console.log('Order confirmation email sent successfully');
+            console.log('Order confirmation email sent successfully to', customerEmail);
           } else {
             console.error('Failed to send order confirmation email:', emailResult.reason);
           }
@@ -304,28 +431,8 @@ export class OrderController {
           console.error('Failed to send order confirmation email:', emailError);
           // Don't fail the request if email fails
         }
-      } else if (!user_id) {
-        // For guest orders, get email from delivery_address if provided
-        const guestEmail = (delivery_address as any)?.email;
-        if (guestEmail) {
-          try {
-            const customerName = delivery_address?.full_name || 'Guest Customer';
-            const emailData = {
-              ...orderData,
-              customer_name: customerName,
-              customer_email: guestEmail,
-              items: orderItems,
-              notes: orderData.notes || null,
-            };
-
-            const emailResult = await enhancedEmailService.sendOrderConfirmation(emailData);
-            if (emailResult.success) {
-              console.log('Guest order confirmation email sent successfully');
-            }
-          } catch (emailError) {
-            console.error('Failed to send guest order confirmation email:', emailError);
-          }
-        }
+      } else {
+        console.warn('No email found for order confirmation. user_id:', user_id, 'shipping_address:', shippingAddress);
       }
 
       // Send admin notification email
@@ -333,10 +440,11 @@ export class OrderController {
         const adminEmail = 'ventechgadget@gmail.com';
         const emailData = {
           ...orderData,
-          customer_name: userData?.full_name || delivery_address?.full_name || 'Guest Customer',
-          customer_email: userData?.email || (delivery_address as any)?.email || 'No email',
+          customer_name: userData?.full_name || shippingAddress?.full_name || 'Guest Customer',
+          customer_email: userData?.email || (shippingAddress as any)?.email || 'No email',
           items: orderItems,
           notes: orderData.notes || null,
+          delivery_address: shippingAddress, // Keep for email template compatibility
         };
 
         await enhancedEmailService.sendAdminOrderNotification(emailData);
@@ -353,11 +461,11 @@ export class OrderController {
           .insert([{
             type: 'order',
             title: `New Order: ${orderData.order_number}`,
-            message: `New order received from ${userData?.full_name || delivery_address?.full_name || 'Guest Customer'}. Total: GHS ${orderData.total.toFixed(2)}`,
+            message: `New order received from ${userData?.full_name || shippingAddress?.full_name || 'Guest Customer'}. Total: GHS ${orderData.total.toFixed(2)}`,
             data: {
               order_id: orderData.id,
               order_number: orderData.order_number,
-              customer_name: userData?.full_name || delivery_address?.full_name || 'Guest',
+              customer_name: userData?.full_name || shippingAddress?.full_name || 'Guest',
             },
             is_read: false,
           }]);
@@ -493,17 +601,59 @@ export class OrderController {
       const { id } = req.params;
 
       // Get order data with all related information
-      const { data: orderData, error: orderError } = await supabaseAdmin
+      let { data: orderData, error: orderError } = await supabaseAdmin
         .from('orders')
         .select(`
           *,
           user:users!orders_user_id_fkey(id, first_name, last_name, email),
-          order_items:order_items(*)
+          order_items!order_items_order_id_fkey(*)
         `)
         .eq('id', id)
         .single();
 
+      // If query fails or no items, try fetching separately
+      if (orderError || !orderData) {
+        // Try without explicit FK name
+        const result = await supabaseAdmin
+          .from('orders')
+          .select(`
+            *,
+            user:users!orders_user_id_fkey(id, first_name, last_name, email),
+            order_items(*)
+          `)
+          .eq('id', id)
+          .single();
+        
+        if (!result.error && result.data) {
+          orderData = result.data;
+          orderError = null;
+        }
+      }
+
+      // If still no items, fetch separately
+      if (!orderError && orderData && (!orderData.order_items || orderData.order_items.length === 0)) {
+        console.log('No items found in order query, fetching separately...');
+        const { data: itemsData, error: itemsError } = await supabaseAdmin
+          .from('order_items')
+          .select('*')
+          .eq('order_id', id);
+        
+        if (!itemsError && itemsData) {
+          console.log('Fetched items separately for PDF:', itemsData.length, 'items');
+          orderData.order_items = itemsData;
+        } else if (itemsError) {
+          console.error('Error fetching items separately for PDF:', itemsError);
+        }
+      }
+
       if (orderError) throw orderError;
+
+      // Debug: Log order data before PDF generation
+      console.log('Order data for PDF:', {
+        orderId: id,
+        hasOrderItems: !!orderData.order_items,
+        orderItemsLength: orderData.order_items?.length || 0,
+      });
 
       // Generate PDF
       const pdfBuffer = await pdfService.generateOrderPDF(orderData);

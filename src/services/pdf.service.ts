@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
 
 interface OrderData {
   id: string;
@@ -11,38 +12,68 @@ interface OrderData {
   subtotal: number;
   discount: number;
   tax: number;
-  delivery_fee: number;
+  shipping_fee?: number;
+  delivery_fee?: number; // Legacy support
   total: number;
-  delivery_address: any;
-  user: {
-    first_name: string;
-    last_name: string;
-    email: string;
+  shipping_address?: any;
+  delivery_address?: any; // Legacy support
+  user?: {
+    first_name?: string;
+    last_name?: string;
+    email?: string;
   };
-  order_items: Array<{
+  order_items?: Array<{
     product_name: string;
     quantity: number;
     unit_price: number;
-    subtotal: number;
+    total_price?: number;
+    subtotal?: number; // Legacy support
+    selected_variants?: any;
+  }>;
+  // Also support items field (for backward compatibility)
+  items?: Array<{
+    product_name: string;
+    quantity: number;
+    unit_price: number;
+    total_price?: number;
+    subtotal?: number;
     selected_variants?: any;
   }>;
 }
 
 class PDFService {
   async generateOrderPDF(orderData: OrderData): Promise<Buffer> {
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       try {
-        const doc = new (PDFDocument as any)({ margin: 50 });
+        // Validate required data
+        if (!orderData || !orderData.order_number) {
+          throw new Error('Invalid order data: order_number is required');
+        }
+
+        const doc = new PDFDocument({ margin: 50 });
         const buffers: Buffer[] = [];
 
-        doc.on('data', buffers.push.bind(buffers));
+        doc.on('data', (chunk: Buffer) => {
+          buffers.push(chunk);
+        });
+
         doc.on('end', () => {
           const pdfData = Buffer.concat(buffers);
           resolve(pdfData);
         });
 
-        // Header
-        this.addHeader(doc);
+        doc.on('error', (error: Error) => {
+          reject(error);
+        });
+
+        // Download logo first (async)
+        try {
+          await this.addHeader(doc);
+        } catch (error) {
+          // If header fails, continue without logo
+          console.warn('Failed to load logo, using text fallback:', error);
+          this.addHeaderFallback(doc);
+        }
         
         // Order Information
         this.addOrderInfo(doc, orderData);
@@ -66,8 +97,53 @@ class PDFService {
     });
   }
 
-  private addHeader(doc: any) {
-    // Company Logo/Title
+  private async addHeader(doc: any) {
+    try {
+      // Download logo from R2
+      // Note: PDFKit supports JPEG, PNG, GIF. For WebP, we'll try to use it directly
+      // If it fails, it will fallback to text
+      const logoUrl = 'https://files.ventechgadgets.com/ventech_logo_1.webp';
+      const logoResponse = await axios.get(logoUrl, { 
+        responseType: 'arraybuffer',
+        timeout: 5000 // 5 second timeout
+      });
+      const logoBuffer = Buffer.from(logoResponse.data);
+      
+      // Try to add logo image (60x60px at top left)
+      // PDFKit may not support WebP directly, so we'll catch if it fails
+      try {
+        doc.image(logoBuffer, 50, 50, { width: 60, height: 60 });
+      } catch (imageError) {
+        // If WebP is not supported, try downloading PNG version if available
+        // For now, we'll just skip the image and use text
+        throw new Error('WebP format not supported by PDFKit');
+      }
+      
+      // Company name next to logo
+      doc.fontSize(24)
+         .fillColor('#FF7A19')
+         .text('VENTECH', 120, 55)
+         .fontSize(12)
+         .fillColor('#3A3A3A')
+         .text('Gadgets & Electronics', 120, 80);
+    } catch (error) {
+      // If logo fails, use fallback
+      throw error;
+    }
+
+    // Document Title
+    doc.fontSize(18)
+       .fillColor('#1A1A1A')
+       .text('ORDER INVOICE', 50, 120);
+
+    // Line separator
+    doc.moveTo(50, 150)
+       .lineTo(550, 150)
+       .stroke('#EDEDED');
+  }
+
+  private addHeaderFallback(doc: any) {
+    // Fallback to text if logo fails to load
     doc.fontSize(24)
        .fillColor('#FF7A19')
        .text('VENTECH', 50, 50)
@@ -119,12 +195,17 @@ class PDFService {
        .fontSize(10)
        .fillColor('#3A3A3A');
 
-    const customerName = `${orderData.user.first_name || ''} ${orderData.user.last_name || ''}`.trim() || 'Unknown';
+    const customerName = orderData.user 
+      ? `${orderData.user.first_name || ''} ${orderData.user.last_name || ''}`.trim() || 'Unknown'
+      : (orderData.shipping_address?.full_name || orderData.delivery_address?.full_name || 'Guest Customer');
+    
+    const customerEmail = orderData.user?.email || orderData.shipping_address?.email || orderData.delivery_address?.email || 'No email';
+    const address = orderData.shipping_address || orderData.delivery_address;
     
     const customerInfo = [
       ['Name:', customerName],
-      ['Email:', orderData.user.email || 'No email'],
-      ['Address:', this.formatAddress(orderData.delivery_address)],
+      ['Email:', customerEmail],
+      ['Address:', this.formatAddress(address)],
     ];
 
     let currentY = y + 20;
@@ -142,6 +223,16 @@ class PDFService {
        .fillColor('#1A1A1A')
        .text('Order Items', 50, y);
 
+    // Get order items - handle both order_items and items
+    const items = orderData.order_items || (orderData as any).items || [];
+    
+    if (!items || items.length === 0) {
+      doc.fontSize(10)
+         .fillColor('#3A3A3A')
+         .text('No items found', 50, y + 30);
+      return;
+    }
+
     // Table header
     const tableY = y + 20;
     doc.fontSize(10)
@@ -158,12 +249,13 @@ class PDFService {
 
     // Order items
     let currentY = tableY + 25;
-    orderData.order_items.forEach((item) => {
+    items.forEach((item: any) => {
+      const itemTotal = item.total_price || item.subtotal || (item.unit_price * item.quantity);
       doc.fillColor('#1A1A1A')
-         .text(item.product_name, 50, currentY)
-         .text(item.quantity.toString(), 300, currentY)
-         .text(`GHS ${item.unit_price.toFixed(2)}`, 350, currentY)
-         .text(`GHS ${item.subtotal.toFixed(2)}`, 450, currentY);
+         .text(item.product_name || 'Unknown Product', 50, currentY)
+         .text((item.quantity || 0).toString(), 300, currentY)
+         .text(`GHS ${(item.unit_price || 0).toFixed(2)}`, 350, currentY)
+         .text(`GHS ${itemTotal.toFixed(2)}`, 450, currentY);
       
       currentY += 20;
     });
@@ -177,12 +269,22 @@ class PDFService {
        .text('Order Summary', 400, y);
 
     const summaryY = y + 20;
-    const summaryItems = [
-      ['Subtotal:', `GHS ${orderData.subtotal.toFixed(2)}`],
-      ['Discount:', `-GHS ${orderData.discount.toFixed(2)}`],
-      ['Tax:', `GHS ${orderData.tax.toFixed(2)}`],
-      ['Delivery Fee:', `GHS ${orderData.delivery_fee.toFixed(2)}`],
-    ];
+    const summaryItems: Array<[string, string]> = [];
+    
+    summaryItems.push(['Subtotal:', `GHS ${orderData.subtotal.toFixed(2)}`]);
+    
+    if (orderData.discount > 0) {
+      summaryItems.push(['Discount:', `-GHS ${orderData.discount.toFixed(2)}`]);
+    }
+    
+    if (orderData.tax > 0) {
+      summaryItems.push(['Tax:', `GHS ${orderData.tax.toFixed(2)}`]);
+    }
+    
+    const shippingFee = orderData.shipping_fee || orderData.delivery_fee || 0;
+    if (shippingFee > 0) {
+      summaryItems.push(['Shipping Fee:', `GHS ${shippingFee.toFixed(2)}`]);
+    }
 
     let currentY = summaryY;
     summaryItems.forEach(([label, value]) => {
@@ -221,7 +323,7 @@ class PDFService {
     if (!address) return 'No address provided';
     
     const parts = [
-      address.street,
+      address.street_address || address.street,
       address.city,
       address.region,
       address.postal_code,

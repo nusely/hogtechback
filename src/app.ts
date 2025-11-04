@@ -3,6 +3,7 @@ import cors from 'cors';
 import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
+import transactionRoutes from './routes/transaction.routes';
 import bannerRoutes from './routes/banner.routes';
 import investmentRoutes from './routes/investment.routes';
 import uploadRoutes from './routes/upload.routes';
@@ -41,6 +42,7 @@ app.get('/health', (req, res) => {
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/transactions', transactionRoutes);
 app.use('/api/banners', bannerRoutes);
 app.use('/api/investment', investmentRoutes);
 app.use('/api/upload', uploadRoutes);
