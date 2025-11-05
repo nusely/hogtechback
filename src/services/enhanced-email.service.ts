@@ -153,19 +153,85 @@ class EnhancedEmailService {
       }
 
       // Email templates are in the root email-templates folder
-      // __dirname in compiled code is backend/dist/services/, so go up 4 levels to reach root
-      const templatePath = path.join(__dirname, '../../../../email-templates/order-confirmation.html');
+      // Try both current directory and one level up (backend directory vs project root)
+      let templatePath = path.join(process.cwd(), 'email-templates', 'order-confirmation.html');
+      if (!fs.existsSync(templatePath)) {
+        // If not found, try one level up (project root)
+        templatePath = path.join(process.cwd(), '..', 'email-templates', 'order-confirmation.html');
+      }
       let template = fs.readFileSync(templatePath, 'utf8');
+
+      // Calculate values for email
+      const subtotal = orderData.subtotal || orderData.total || 0;
+      const shippingFee = orderData.shipping_fee || orderData.delivery_fee || 0;
+      const total = orderData.total || 0;
+      const paymentMethod = orderData.payment_method || 'Cash on Delivery';
+      const paymentStatus = orderData.payment_status || 'Pending';
+      
+      // Format payment method for display
+      const paymentMethodDisplay = paymentMethod
+        .split('_')
+        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+      
+      // Format payment status for display
+      const paymentStatusDisplay = paymentStatus.charAt(0).toUpperCase() + paymentStatus.slice(1);
+      
+      // Get estimated delivery from delivery_option
+      const estimatedDelivery = orderData.delivery_address?.delivery_option?.estimated_days 
+        ? `${orderData.delivery_address.delivery_option.estimated_days} business days`
+        : orderData.delivery_option?.estimated_days 
+          ? `${orderData.delivery_option.estimated_days} business days`
+          : '5-7 business days';
+      
+      // Generate tracking URL
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://ventechgadgets.com';
+      const trackingUrl = `${frontendUrl}/orders/${orderData.id}`;
+      const contactUrl = `${frontendUrl}/contact`;
 
       // Replace placeholders with actual data
       template = template
-        .replace('{{ORDER_NUMBER}}', orderData.order_number)
-        .replace('{{CUSTOMER_NAME}}', orderData.customer_name)
-        .replace('{{ORDER_DATE}}', new Date(orderData.created_at).toLocaleDateString())
-        .replace('{{TOTAL_AMOUNT}}', `GHS ${orderData.total.toFixed(2)}`)
-        .replace('{{DELIVERY_ADDRESS}}', this.formatAddress(orderData.delivery_address))
-        .replace('{{ITEMS_LIST}}', this.formatOrderItems(orderData.items))
-        .replace('{{ORDER_NOTES}}', orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '');
+        .replace(/{{ORDER_NUMBER}}/g, orderData.order_number || '')
+        .replace(/{{CUSTOMER_NAME}}/g, orderData.customer_name || 'Customer')
+        .replace(/{{CUSTOMER_EMAIL}}/g, orderData.customer_email || '')
+        .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at || new Date()).toLocaleDateString())
+        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || []))
+        .replace(/{{ITEMS_LIST}}/g, this.formatOrderItemsForEmail(orderData.items || [])) // Also support old placeholder
+        .replace(/{{SUBTOTAL}}/g, subtotal.toFixed(2))
+        .replace(/{{SHIPPING}}/g, shippingFee.toFixed(2))
+        .replace(/{{TOTAL}}/g, total.toFixed(2))
+        .replace(/{{TOTAL_AMOUNT}}/g, total.toFixed(2)) // Also support old placeholder
+        .replace(/{{SHIPPING_ADDRESS}}/g, this.formatAddress(orderData.delivery_address || orderData.shipping_address))
+        .replace(/{{DELIVERY_ADDRESS}}/g, this.formatAddress(orderData.delivery_address || orderData.shipping_address)) // Also support old placeholder
+        .replace(/{{PAYMENT_METHOD}}/g, paymentMethodDisplay)
+        .replace(/{{PAYMENT_STATUS}}/g, paymentStatusDisplay)
+        .replace(/{{ESTIMATED_DELIVERY}}/g, estimatedDelivery)
+        .replace(/{{TRACKING_URL}}/g, trackingUrl)
+        .replace(/{{CONTACT_URL}}/g, contactUrl)
+        .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '')
+        .replace(/{{LOGO_URL}}/g, 'https://images.ventechgadgets.com/logo/ventech-logo-white.png');
+
+      // Verify placeholder replacement
+      const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
+      if (remainingPlaceholders) {
+        console.warn('⚠️ Order confirmation template still contains unreplaced placeholders:', remainingPlaceholders);
+      } else {
+        console.log('✅ All placeholders replaced successfully');
+      }
+      
+      // Log email data for debugging
+      console.log('📧 Order confirmation email data:', {
+        order_number: orderData.order_number,
+        customer_name: orderData.customer_name,
+        customer_email: orderData.customer_email,
+        subtotal,
+        shipping_fee: shippingFee,
+        total,
+        payment_method: paymentMethodDisplay,
+        payment_status: paymentStatusDisplay,
+        items_count: (orderData.items || []).length,
+        estimated_delivery: estimatedDelivery,
+      });
 
       // Use support email for order confirmations (customers can reply)
       if (!orderData.customer_email) {
@@ -174,6 +240,9 @@ class EnhancedEmailService {
       }
 
       console.log(`📧 Sending order confirmation email to: ${orderData.customer_email}`);
+      console.log(`   Order Number: ${orderData.order_number}`);
+      console.log(`   Customer Name: ${orderData.customer_name}`);
+      console.log(`   Total: GHS ${orderData.total?.toFixed(2) || '0.00'}`);
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Confirmation - ${orderData.order_number}`,
@@ -207,17 +276,87 @@ class EnhancedEmailService {
       }
 
       // Email templates are in the root email-templates folder
-      const templatePath = path.join(__dirname, '../../../../email-templates/order-status-update.html');
+      // Try both current directory and one level up (backend directory vs project root)
+      let templatePath = path.join(process.cwd(), 'email-templates', 'order-status-update.html');
+      if (!fs.existsSync(templatePath)) {
+        // If not found, try one level up (project root)
+        templatePath = path.join(process.cwd(), '..', 'email-templates', 'order-status-update.html');
+      }
       let template = fs.readFileSync(templatePath, 'utf8');
 
+      // Generate status message based on status
+      const statusMessages: Record<string, string> = {
+        'pending': 'Your order is being processed. We will update you soon.',
+        'confirmed': 'Your order has been confirmed and is being prepared for shipment.',
+        'processing': 'Your order is being processed and will be shipped soon.',
+        'shipped': 'Your order has been shipped! You can track it using the tracking number below.',
+        'delivered': 'Your order has been delivered! We hope you enjoy your purchase.',
+        'cancelled': 'Your order has been cancelled. If you have any questions, please contact us.',
+      };
+      
+      const statusMessage = statusMessages[newStatus.toLowerCase()] || `Your order status has been updated to ${newStatus}.`;
+      const trackingNumber = orderData.tracking_number || 'Not available yet';
+      
+      // Format status for display (capitalize first letter)
+      const statusDisplay = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
+      
+      // Generate public tracking URL (works for guest customers using order number)
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://ventechgadgets.com';
+      const trackingUrl = `${frontendUrl}/track-order?order_number=${orderData.order_number || ''}`;
+      const contactUrl = `${frontendUrl}/contact`;
+      
+      // Get customer name - try multiple sources
+      const customerName = orderData.customer_name || 
+                          (orderData.user?.first_name && orderData.user?.last_name 
+                            ? `${orderData.user.first_name} ${orderData.user.last_name}`.trim()
+                            : orderData.user?.first_name || 
+                              orderData.user?.full_name ||
+                              orderData.shipping_address?.full_name ||
+                              orderData.delivery_address?.full_name ||
+                              'Customer');
+      
       template = template
-        .replace('{{ORDER_NUMBER}}', orderData.order_number)
-        .replace('{{CUSTOMER_NAME}}', orderData.customer_name)
-        .replace('{{NEW_STATUS}}', newStatus)
-        .replace('{{ORDER_DATE}}', new Date(orderData.created_at).toLocaleDateString())
-        .replace('{{TOTAL_AMOUNT}}', `GHS ${orderData.total.toFixed(2)}`);
+        .replace(/{{ORDER_NUMBER}}/g, orderData.order_number || '')
+        .replace(/{{CUSTOMER_NAME}}/g, customerName)
+        .replace(/{{NEW_STATUS}}/g, statusDisplay)
+        .replace(/{{STATUS_MESSAGE}}/g, statusMessage)
+        .replace(/{{TRACKING_NUMBER}}/g, trackingNumber)
+        .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at || new Date()).toLocaleDateString())
+        .replace(/{{TOTAL_AMOUNT}}/g, `GHS ${orderData.total?.toFixed(2) || '0.00'}`)
+        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || orderData.order_items || []))
+        .replace(/{{TRACKING_URL}}/g, trackingUrl)
+        .replace(/{{CONTACT_URL}}/g, contactUrl)
+        .replace(/{{LOGO_URL}}/g, 'https://images.ventechgadgets.com/logo/ventech-logo-white.png');
+
+      // Verify placeholder replacement
+      const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
+      if (remainingPlaceholders) {
+        console.warn('⚠️ Order status update template still contains unreplaced placeholders:', remainingPlaceholders);
+      } else {
+        console.log('✅ All placeholders replaced successfully');
+      }
+      
+      // Log email data for debugging
+      console.log('📧 Order status update email data:', {
+        order_number: orderData.order_number,
+        customer_name: customerName,
+        customer_email: orderData.customer_email,
+        new_status: statusDisplay,
+        tracking_number: trackingNumber,
+        items_count: (orderData.items || orderData.order_items || []).length,
+      });
 
       // Use support email for order status updates (customers can reply)
+      if (!orderData.customer_email) {
+        console.error('❌ No customer email provided for order status update:', orderData.order_number);
+        return { success: false, reason: 'No customer email provided' };
+      }
+
+      console.log(`📧 Sending order status update email to: ${orderData.customer_email}`);
+      console.log(`   Order Number: ${orderData.order_number}`);
+      console.log(`   New Status: ${newStatus}`);
+      console.log(`   Tracking Number: ${trackingNumber}`);
+      
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Update - ${orderData.order_number}`,
@@ -304,6 +443,37 @@ class EnhancedEmailService {
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${unitPrice.toFixed(2)}</td>
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${subtotal.toFixed(2)}</td>
       </tr>`;
+    }).join('');
+  }
+
+  // Format order items for email template (matches template format)
+  private formatOrderItemsForEmail(items: any[]): string {
+    if (!items || items.length === 0) return '<div style="padding: 15px; text-align: center; color: #3A3A3A;">No items in order</div>';
+    
+    return items.map(item => {
+      const productName = item.product_name || 'Product';
+      const quantity = item.quantity || 0;
+      const unitPrice = item.unit_price || item.price || 0;
+      const subtotal = item.total_price || item.subtotal || (unitPrice * quantity);
+      const productImage = item.product_image || item.image || 'https://images.ventechgadgets.com/placeholder.png';
+      const variantInfo = item.selected_variants 
+        ? Object.entries(item.selected_variants).map(([key, value]: [string, any]) => `${key}: ${value}`).join(', ')
+        : '';
+      
+      return `
+        <div style="padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center;">
+          <img src="${productImage}" alt="${productName}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; margin-right: 15px;">
+          <div style="flex: 1;">
+            <h3 style="margin: 0 0 5px 0; color: #1A1A1A; font-size: 16px;">${productName}</h3>
+            <p style="margin: 0; color: #3A3A3A; font-size: 14px;">Qty: ${quantity}</p>
+            ${variantInfo ? `<p style="margin: 5px 0 0 0; color: #3A3A3A; font-size: 12px;">${variantInfo}</p>` : ''}
+          </div>
+          <div style="text-align: right;">
+            <p style="margin: 0; color: #FF7A19; font-size: 16px; font-weight: bold;">GHC ${subtotal.toFixed(2)}</p>
+            <p style="margin: 5px 0 0 0; color: #3A3A3A; font-size: 12px;">GHC ${unitPrice.toFixed(2)} each</p>
+          </div>
+        </div>
+      `;
     }).join('');
   }
 
@@ -528,6 +698,105 @@ class EnhancedEmailService {
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${((item.price || 0) * (item.quantity || 1)).toFixed(2)}</td>
       </tr>
     `).join('');
+  }
+
+  // Send email verification email via Resend
+  async sendVerificationEmail(email: string, verificationUrl: string, firstName?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Email templates are in the root email-templates folder
+      // Try both current directory and one level up (backend directory vs project root)
+      let templatePath = path.join(process.cwd(), 'email-templates', 'verification-email.html');
+      if (!fs.existsSync(templatePath)) {
+        // If not found, try one level up (project root)
+        templatePath = path.join(process.cwd(), '..', 'email-templates', 'verification-email.html');
+      }
+      let template = fs.readFileSync(templatePath, 'utf8');
+
+      // Replace placeholders
+      const customerName = firstName ? `Hi ${firstName}!` : 'Hi there!';
+      template = template
+        .replace(/{{ \.ConfirmationURL }}/g, verificationUrl)  // Template uses {{ .ConfirmationURL }} with spaces
+        .replace(/{{\.ConfirmationURL}}/g, verificationUrl)     // Also handle without spaces
+        .replace(/{{ConfirmationURL}}/g, verificationUrl)      // Also handle without dot
+        .replace(/Hi there! 👋/g, `${customerName} 👋`)       // Replace greeting with personalized name
+        .replace(/Hi there!/g, customerName);                  // Also replace without emoji
+
+      // Use noreply for verification emails (automated, no reply needed)
+      const success = await this.sendEmail({
+        to: email,
+        subject: 'Verify Your Email - VENTECH',
+        html: template,
+      }, false); // false = use noreply email
+
+      if (!success) {
+        console.error('❌ Failed to send verification email to:', email);
+        return { success: false, error: 'Failed to send verification email' };
+      }
+
+      console.log(`✅ Verification email sent successfully via Resend to: ${email}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Error sending verification email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Send password reset email via Resend
+  async sendPasswordResetEmail(email: string, resetUrl: string, firstName?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Email templates are in the root email-templates folder
+      // Try both current directory and one level up (backend directory vs project root)
+      let templatePath = path.join(process.cwd(), 'email-templates', 'password-reset.html');
+      if (!fs.existsSync(templatePath)) {
+        // If not found, try one level up (project root)
+        templatePath = path.join(process.cwd(), '..', 'email-templates', 'password-reset.html');
+      }
+      let template = fs.readFileSync(templatePath, 'utf8');
+
+      // Replace placeholders
+      const customerName = firstName ? `Hello ${firstName}!` : 'Hello!';
+      
+      // Log the resetUrl for debugging
+      console.log('Password reset URL:', resetUrl);
+      console.log('Reset URL length:', resetUrl?.length || 0);
+      
+      // Check if resetUrl is empty or invalid
+      if (!resetUrl || resetUrl.trim() === '') {
+        console.error('⚠️ Password reset URL is empty!');
+        return { success: false, error: 'Password reset URL is empty' };
+      }
+      
+      template = template
+        .replace(/{{ \.ConfirmationURL }}/g, resetUrl)  // Template uses {{ .ConfirmationURL }} with spaces
+        .replace(/{{\.ConfirmationURL}}/g, resetUrl)     // Also handle without spaces
+        .replace(/{{ConfirmationURL}}/g, resetUrl)      // Also handle without dot
+        .replace(/Hello! 👋/g, `${customerName} 👋`)   // Replace greeting with personalized name
+        .replace(/Hello!/g, customerName);              // Also replace without emoji
+
+      // Verify replacement worked
+      if (template.includes('{{ .ConfirmationURL }}') || template.includes('{{.ConfirmationURL}}') || template.includes('{{ConfirmationURL}}')) {
+        console.error('⚠️ Password reset URL placeholder was not replaced!');
+        console.log('Template contains placeholders:', template.includes('{{'));
+      }
+
+      // Use noreply for password reset emails (automated, no reply needed)
+      const success = await this.sendEmail({
+        to: email,
+        subject: 'Reset Your Password - VENTECH',
+        html: template,
+      }, false); // false = use noreply email
+
+      if (!success) {
+        console.error('❌ Failed to send password reset email to:', email);
+        return { success: false, error: 'Failed to send password reset email' };
+      }
+
+      console.log(`✅ Password reset email sent successfully via Resend to: ${email}`);
+      return { success: true };
+    } catch (error) {
+      console.error('Error sending password reset email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
   }
 
   // Investment email (no preference check needed - always send to admin)

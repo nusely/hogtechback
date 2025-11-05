@@ -7,6 +7,9 @@ const orderController = new OrderController();
 // Get all orders (admin only)
 router.get('/', orderController.getAllOrders.bind(orderController));
 
+// Track order by order number and email (public, for guest customers)
+router.post('/track', orderController.trackOrder.bind(orderController));
+
 // Get order by ID
 router.get('/:id', orderController.getOrderById.bind(orderController));
 

@@ -7,19 +7,24 @@ export class OrderController {
   // Get all orders (admin)
   async getAllOrders(req: Request, res: Response) {
     try {
-      const { user_id } = req.query;
+      const { user_id, status } = req.query;
       
       let query = supabaseAdmin
         .from('orders')
         .select(`
           *,
-          user:users!orders_user_id_fkey(id, first_name, last_name, email),
+          user:users!orders_user_id_fkey(id, first_name, last_name, full_name, email),
           order_items:order_items(*)
         `);
 
       // Filter by user_id if provided
       if (user_id) {
         query = query.eq('user_id', user_id as string);
+      }
+
+      // Filter by status if provided
+      if (status && status !== 'all') {
+        query = query.eq('status', status as string);
       }
 
       const { data, error } = await query.order('created_at', { ascending: false });
@@ -66,6 +71,97 @@ export class OrderController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch order',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Track order by order number and email (public, for guest customers)
+  async trackOrder(req: Request, res: Response) {
+    try {
+      const { order_number, email } = req.body;
+
+      if (!order_number || !email) {
+        return res.status(400).json({
+          success: false,
+          message: 'Order number and email are required',
+        });
+      }
+
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid email format',
+        });
+      }
+
+      // Find order by order number
+      const { data: orderData, error: orderError } = await supabaseAdmin
+        .from('orders')
+        .select(`
+          *,
+          user:users!orders_user_id_fkey(id, first_name, last_name, email),
+          order_items:order_items(*)
+        `)
+        .eq('order_number', order_number.trim())
+        .single();
+
+      if (orderError || !orderData) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found',
+        });
+      }
+
+      // Verify email matches (either user email or email in shipping_address)
+      let emailMatches = false;
+      
+      if (orderData.user && orderData.user.email && orderData.user.email.toLowerCase() === email.toLowerCase()) {
+        emailMatches = true;
+      } else if (orderData.shipping_address && (orderData.shipping_address as any)?.email) {
+        if ((orderData.shipping_address as any).email.toLowerCase() === email.toLowerCase()) {
+          emailMatches = true;
+        }
+      } else if (orderData.delivery_address && (orderData.delivery_address as any)?.email) {
+        if ((orderData.delivery_address as any).email.toLowerCase() === email.toLowerCase()) {
+          emailMatches = true;
+        }
+      }
+
+      if (!emailMatches) {
+        return res.status(401).json({
+          success: false,
+          message: 'Email does not match this order',
+        });
+      }
+
+      // Return order data (without sensitive information)
+      res.json({
+        success: true,
+        data: {
+          id: orderData.id,
+          order_number: orderData.order_number,
+          status: orderData.status,
+          payment_status: orderData.payment_status,
+          total: orderData.total,
+          subtotal: orderData.subtotal,
+          shipping_fee: orderData.shipping_fee,
+          created_at: orderData.created_at,
+          tracking_number: orderData.tracking_number,
+          shipping_address: orderData.shipping_address,
+          delivery_address: orderData.delivery_address,
+          payment_method: orderData.payment_method,
+          order_items: orderData.order_items,
+          items: orderData.order_items, // Alias for compatibility
+        },
+      });
+    } catch (error) {
+      console.error('Error tracking order:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to track order',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
