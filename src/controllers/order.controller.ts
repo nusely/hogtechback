@@ -192,7 +192,7 @@ export class OrderController {
 
       if (orderError) throw orderError;
 
-      // Send email notification
+      // Send email notification (don't fail order update if email fails)
       try {
         // Determine customer email and name
         let customerEmail: string | null = null;
@@ -228,9 +228,10 @@ export class OrderController {
         } else {
           console.warn('No email found for order status update. Order:', orderData.id);
         }
-      } catch (emailError) {
-        console.error('Failed to send order status update email:', emailError);
-        // Don't fail the request if email fails
+      } catch (emailError: any) {
+        // Don't fail the order update if email sending fails
+        console.error('Error sending order status update email (order update still succeeded):', emailError?.message || emailError);
+        // Continue with order update success - don't throw error
       }
 
       res.json({
@@ -261,7 +262,7 @@ export class OrderController {
         });
       }
 
-      // Update payment status
+      // Update payment status in orders table
       const { data: orderData, error: orderError } = await supabaseAdmin
         .from('orders')
         .update({
@@ -277,6 +278,28 @@ export class OrderController {
         .single();
 
       if (orderError) throw orderError;
+
+      // Also update the transaction's payment_status to keep it in sync
+      try {
+        const { error: transactionError } = await supabaseAdmin
+          .from('transactions')
+          .update({
+            payment_status,
+            status: payment_status === 'paid' ? 'success' : payment_status === 'failed' ? 'failed' : 'pending',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('order_id', id);
+
+        if (transactionError) {
+          console.warn('Warning: Failed to update transaction payment_status:', transactionError);
+          // Don't fail the request if transaction update fails
+        } else {
+          console.log(`✅ Updated transaction payment_status to ${payment_status} for order ${id}`);
+        }
+      } catch (transactionUpdateError) {
+        console.warn('Warning: Error updating transaction payment_status:', transactionUpdateError);
+        // Don't fail the request if transaction update fails
+      }
 
       res.json({
         success: true,
@@ -601,6 +624,9 @@ export class OrderController {
           customerName = shippingAddress?.full_name || shippingAddress?.first_name || 'Guest Customer';
         }
 
+        // Get order payment_status to sync with transaction
+        const orderPaymentStatus = orderData.payment_status || 'pending';
+        
         const transactionData: any = {
           order_id: orderData.id,
           user_id: user_id || null,
@@ -609,8 +635,8 @@ export class OrderController {
           payment_provider: payment_method === 'paystack' ? 'paystack' : payment_method === 'cash_on_delivery' ? 'cash' : 'other',
           amount: total,
           currency: 'GHS',
-          status: payment_method === 'cash_on_delivery' ? 'pending' : 'pending', // Will be updated when payment verified
-          payment_status: payment_method === 'cash_on_delivery' ? 'pending' : 'pending', // Will be updated when payment verified
+          status: orderPaymentStatus === 'paid' ? 'success' : orderPaymentStatus === 'failed' ? 'failed' : 'pending',
+          payment_status: orderPaymentStatus, // Sync with order payment_status
           customer_email: customerEmail || 'no-email@example.com', // Required field - provide default if missing
           metadata: {
             order_number: order_number,
@@ -636,14 +662,18 @@ export class OrderController {
             .maybeSingle();
 
           if (existingTransaction) {
-            // Update existing transaction with order_id
+            // Update existing transaction with order_id and sync payment_status
             const existingMetadata = (existingTransaction as any).metadata || {};
+            const orderPaymentStatus = orderData.payment_status || 'pending';
+            
             await supabaseAdmin
               .from('transactions')
               .update({
                 order_id: orderData.id,
                 user_id: user_id || null,
                 customer_email: customerEmail,
+                payment_status: orderPaymentStatus, // Sync with order payment_status
+                status: orderPaymentStatus === 'paid' ? 'success' : orderPaymentStatus === 'failed' ? 'failed' : 'pending',
                 metadata: {
                   ...existingMetadata,
                   customer_name: customerName,
@@ -653,7 +683,7 @@ export class OrderController {
               })
               .eq('id', existingTransaction.id);
             
-            console.log('✅ Linked existing transaction to order:', orderData.order_number);
+            console.log('✅ Linked existing transaction to order:', orderData.order_number, 'with payment_status:', orderPaymentStatus);
           } else {
             // Create new transaction
             transactionData.paystack_reference = payment_reference;

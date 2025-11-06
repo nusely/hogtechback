@@ -9,7 +9,7 @@ import investmentRoutes from './routes/investment.routes';
 import uploadRoutes from './routes/upload.routes';
 import contactRoutes from './routes/contact.routes';
 import authRoutes from './routes/auth.routes';
-import flashDealRoutes from './routes/flashDeal.routes';
+import dealRoutes from './routes/deal.routes';
 import { errorHandler, notFound } from './middleware/error.middleware';
 
 const app: Application = express();
@@ -50,7 +50,7 @@ app.use('/api/investment', investmentRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/auth', authRoutes);
-app.use('/api/flash-deals', flashDealRoutes);
+app.use('/api/deals', dealRoutes);
 
 // Error handling
 app.use(notFound);

@@ -22,19 +22,30 @@ interface UserPreferences {
 }
 
 class EnhancedEmailService {
-  private resend: Resend;
+  private resend: Resend | null;
   private supportEmail: string;
   private noreplyEmail: string;
+  private enabled: boolean;
 
   constructor() {
     const resendApiKey = process.env.RESEND_API_KEY;
     
     if (!resendApiKey) {
-      console.error('❌ RESEND_API_KEY is missing in .env file');
-      throw new Error('RESEND_API_KEY is required');
+      console.error('⚠️ RESEND_API_KEY is missing - email service will be disabled');
+      console.error('   Set RESEND_API_KEY in environment variables to enable email sending');
+      this.resend = null;
+      this.enabled = false;
+    } else {
+      try {
+        this.resend = new Resend(resendApiKey);
+        this.enabled = true;
+        console.log('✅ Resend email service initialized');
+      } catch (error) {
+        console.error('❌ Failed to initialize Resend email service:', error);
+        this.resend = null;
+        this.enabled = false;
+      }
     }
-
-    this.resend = new Resend(resendApiKey);
     
     // Support email for customer-facing emails (order confirmations, replies, etc.)
     this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'VENTECH GADGETS <support@ventechgadgets.com>';
@@ -42,9 +53,9 @@ class EnhancedEmailService {
     // No-reply email for automated notifications (system updates, password resets, etc.)
     this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'VENTECH GADGETS <noreply@ventechgadgets.com>';
     
-    console.log('✅ Resend email service initialized');
     console.log(`   Support Email: ${this.supportEmail}`);
     console.log(`   No-Reply Email: ${this.noreplyEmail}`);
+    console.log(`   Email Service Enabled: ${this.enabled}`);
   }
 
   // Get user communication preferences
@@ -98,6 +109,12 @@ class EnhancedEmailService {
   }
 
   async sendEmail(options: EmailOptions, useSupportEmail: boolean = true): Promise<boolean> {
+    // Check if email service is enabled
+    if (!this.enabled || !this.resend) {
+      console.warn('⚠️ Email service is disabled - RESEND_API_KEY missing. Email not sent to:', options.to);
+      return false;
+    }
+
     try {
       // Convert attachments to Resend format if provided
       const attachments = options.attachments?.map(att => ({
@@ -140,16 +157,32 @@ class EnhancedEmailService {
   // Enhanced order confirmation email with preference check
   async sendOrderConfirmation(orderData: any): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
+      // Log email attempt
+      console.log('📧 sendOrderConfirmation called:', {
+        order_number: orderData.order_number,
+        customer_email: orderData.customer_email,
+        user_id: orderData.user_id,
+        has_items: !!(orderData.items && orderData.items.length > 0),
+      });
+
       // Always send order confirmation emails (critical transactional emails)
       // Only check user preferences if user_id exists (for logged-in users)
       // For guest orders, always send
       if (orderData.user_id) {
-        const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
-        
-        if (!shouldSend) {
-          console.log(`Skipping order confirmation email for user ${orderData.user_id} - email notifications disabled`);
-          return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+        try {
+          const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
+          console.log(`📧 User preferences check for user ${orderData.user_id}: shouldSend=${shouldSend}`);
+          
+          if (!shouldSend) {
+            console.log(`⚠️ Skipping order confirmation email for user ${orderData.user_id} - email notifications disabled`);
+            return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+          }
+        } catch (prefError: any) {
+          console.error('❌ Error checking user preferences (sending email anyway):', prefError?.message || prefError);
+          // Continue sending email even if preferences check fails
         }
+      } else {
+        console.log('📧 Guest order - skipping user preferences check, sending email');
       }
 
       // Email templates are in the root email-templates folder
@@ -159,6 +192,17 @@ class EnhancedEmailService {
         // If not found, try one level up (project root)
         templatePath = path.join(process.cwd(), '..', 'email-templates', 'order-confirmation.html');
       }
+      
+      if (!fs.existsSync(templatePath)) {
+        console.error('❌ Email template not found at:', templatePath);
+        console.error('   Current working directory:', process.cwd());
+        console.error('   Template paths tried:');
+        console.error('     1.', path.join(process.cwd(), 'email-templates', 'order-confirmation.html'));
+        console.error('     2.', path.join(process.cwd(), '..', 'email-templates', 'order-confirmation.html'));
+        return { success: false, reason: 'Email template not found' };
+      }
+      
+      console.log('✅ Email template found at:', templatePath);
       let template = fs.readFileSync(templatePath, 'utf8');
 
       // Calculate values for email
@@ -236,6 +280,12 @@ class EnhancedEmailService {
       // Use support email for order confirmations (customers can reply)
       if (!orderData.customer_email) {
         console.error('❌ No customer email provided for order confirmation:', orderData.order_number);
+        console.error('   Order data:', {
+          order_number: orderData.order_number,
+          user_id: orderData.user_id,
+          shipping_address: orderData.shipping_address,
+          delivery_address: orderData.delivery_address,
+        });
         return { success: false, reason: 'No customer email provided' };
       }
 
@@ -243,6 +293,9 @@ class EnhancedEmailService {
       console.log(`   Order Number: ${orderData.order_number}`);
       console.log(`   Customer Name: ${orderData.customer_name}`);
       console.log(`   Total: GHS ${orderData.total?.toFixed(2) || '0.00'}`);
+      console.log(`   Email Service Enabled: ${this.enabled}`);
+      console.log(`   Resend Client: ${this.resend ? 'initialized' : 'null'}`);
+      
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Confirmation - ${orderData.order_number}`,
@@ -251,6 +304,10 @@ class EnhancedEmailService {
 
       if (!success) {
         console.error('❌ Failed to send order confirmation email to:', orderData.customer_email);
+        console.error('   Email service enabled:', this.enabled);
+        console.error('   Resend client:', this.resend ? 'available' : 'null');
+      } else {
+        console.log(`✅ Order confirmation email sent successfully to ${orderData.customer_email}`);
       }
 
       return { success };
@@ -263,16 +320,33 @@ class EnhancedEmailService {
   // Enhanced order status update email with preference check
   async sendOrderStatusUpdate(orderData: any, newStatus: string): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
+      // Log email attempt
+      console.log('📧 sendOrderStatusUpdate called:', {
+        order_number: orderData.order_number,
+        customer_email: orderData.customer_email,
+        user_id: orderData.user_id,
+        new_status: newStatus,
+        has_items: !!(orderData.items && orderData.items.length > 0),
+      });
+
       // Always send order status update emails (critical transactional emails)
       // Only check user preferences if user_id exists (for logged-in users)
       // For guest orders, always send status update emails
       if (orderData.user_id) {
-        const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
-        
-        if (!shouldSend) {
-          console.log(`Skipping order status update email for user ${orderData.user_id} - email notifications disabled`);
-          return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+        try {
+          const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
+          console.log(`📧 User preferences check for user ${orderData.user_id}: shouldSend=${shouldSend}`);
+          
+          if (!shouldSend) {
+            console.log(`⚠️ Skipping order status update email for user ${orderData.user_id} - email notifications disabled`);
+            return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+          }
+        } catch (prefError: any) {
+          console.error('❌ Error checking user preferences (sending email anyway):', prefError?.message || prefError);
+          // Continue sending email even if preferences check fails
         }
+      } else {
+        console.log('📧 Guest order - skipping user preferences check, sending email');
       }
 
       // Email templates are in the root email-templates folder
@@ -282,6 +356,17 @@ class EnhancedEmailService {
         // If not found, try one level up (project root)
         templatePath = path.join(process.cwd(), '..', 'email-templates', 'order-status-update.html');
       }
+      
+      if (!fs.existsSync(templatePath)) {
+        console.error('❌ Email template not found at:', templatePath);
+        console.error('   Current working directory:', process.cwd());
+        console.error('   Template paths tried:');
+        console.error('     1.', path.join(process.cwd(), 'email-templates', 'order-status-update.html'));
+        console.error('     2.', path.join(process.cwd(), '..', 'email-templates', 'order-status-update.html'));
+        return { success: false, reason: 'Email template not found' };
+      }
+      
+      console.log('✅ Email template found at:', templatePath);
       let template = fs.readFileSync(templatePath, 'utf8');
 
       // Generate status message based on status
@@ -356,12 +441,22 @@ class EnhancedEmailService {
       console.log(`   Order Number: ${orderData.order_number}`);
       console.log(`   New Status: ${newStatus}`);
       console.log(`   Tracking Number: ${trackingNumber}`);
+      console.log(`   Email Service Enabled: ${this.enabled}`);
+      console.log(`   Resend Client: ${this.resend ? 'initialized' : 'null'}`);
       
       const success = await this.sendEmail({
         to: orderData.customer_email,
         subject: `Order Update - ${orderData.order_number}`,
         html: template,
       }, true); // true = use support email
+
+      if (!success) {
+        console.error('❌ Failed to send order status update email to:', orderData.customer_email);
+        console.error('   Email service enabled:', this.enabled);
+        console.error('   Resend client:', this.resend ? 'available' : 'null');
+      } else {
+        console.log(`✅ Order status update email sent successfully to ${orderData.customer_email}`);
+      }
 
       return { success };
     } catch (error) {
