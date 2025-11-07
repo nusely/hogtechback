@@ -49,13 +49,30 @@ export const authenticate = async (
   }
 };
 
+const hasAdminPrivileges = (user: any) => {
+  if (!user?.role) return false;
+  return user.role === 'admin' || user.role === 'superadmin';
+};
+
 export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
   if (!req.user) {
     return errorResponse(res, 'Unauthorized', 401);
   }
 
-  if (req.user.role !== 'admin') {
+  if (!hasAdminPrivileges(req.user)) {
     return errorResponse(res, 'Forbidden - Admin access required', 403);
+  }
+
+  next();
+};
+
+export const isSuperAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return errorResponse(res, 'Unauthorized', 401);
+  }
+
+  if (req.user.role !== 'superadmin') {
+    return errorResponse(res, 'Forbidden - Superadmin access required', 403);
   }
 
   next();

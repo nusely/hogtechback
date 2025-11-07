@@ -1,37 +1,98 @@
 import express from 'express';
 import { OrderController } from '../controllers/order.controller';
+import { authenticate, isAdmin } from '../middleware/auth.middleware';
+import { checkoutRateLimiter, orderTrackRateLimiter } from '../middleware/rateLimit.middleware';
+import { validateBody } from '../middleware/validation.middleware';
+import { orderCreateSchema, trackOrderSchema } from '../validation/schemas';
+import { adminAuditLogger } from '../middleware/audit.middleware';
 
 const router = express.Router();
 const orderController = new OrderController();
 
 // Get all orders (admin only)
-router.get('/', orderController.getAllOrders.bind(orderController));
+router.get(
+  '/',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:list'),
+  orderController.getAllOrders.bind(orderController)
+);
 
 // Track order by order number and email (public, for guest customers)
-router.post('/track', orderController.trackOrder.bind(orderController));
+router.post(
+  '/track',
+  orderTrackRateLimiter,
+  validateBody(trackOrderSchema),
+  orderController.trackOrder.bind(orderController)
+);
 
-// Get order by ID
-router.get('/:id', orderController.getOrderById.bind(orderController));
+// Download order PDF (admin or owner)
+router.get(
+  '/:id/pdf',
+  authenticate,
+  adminAuditLogger('orders:download-pdf'),
+  orderController.downloadOrderPDF.bind(orderController)
+);
+
+// Get order by ID (admin or owner)
+router.get(
+  '/:id',
+  authenticate,
+  adminAuditLogger('orders:get'),
+  orderController.getOrderById.bind(orderController)
+);
 
 // Update order status
-router.patch('/:id/status', orderController.updateOrderStatus.bind(orderController));
+router.patch(
+  '/:id/status',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:update-status'),
+  orderController.updateOrderStatus.bind(orderController)
+);
 
 // Update payment status
-router.patch('/:id/payment-status', orderController.updatePaymentStatus.bind(orderController));
+router.patch(
+  '/:id/payment-status',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:update-payment-status'),
+  orderController.updatePaymentStatus.bind(orderController)
+);
 
-// Cancel order
-router.patch('/:id/cancel', orderController.cancelOrder.bind(orderController));
+// Cancel order (admin only for now)
+router.patch(
+  '/:id/cancel',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:cancel'),
+  orderController.cancelOrder.bind(orderController)
+);
 
 // Create order
-router.post('/', orderController.createOrder.bind(orderController));
+router.post(
+  '/',
+  checkoutRateLimiter,
+  validateBody(orderCreateSchema),
+  orderController.createOrder.bind(orderController)
+);
 
 // Send wishlist reminder
-router.post('/wishlist-reminder/:user_id', orderController.sendWishlistReminder.bind(orderController));
+router.post(
+  '/wishlist-reminder/:user_id',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:wishlist-reminder'),
+  orderController.sendWishlistReminder.bind(orderController)
+);
 
 // Send cart abandonment reminder
-router.post('/cart-abandonment-reminder', orderController.sendCartAbandonmentReminder.bind(orderController));
-
-// Download order PDF
-router.get('/:id/pdf', orderController.downloadOrderPDF.bind(orderController));
+router.post(
+  '/cart-abandonment-reminder',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:cart-abandonment'),
+  orderController.sendCartAbandonmentReminder.bind(orderController)
+);
 
 export default router;

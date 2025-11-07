@@ -7,6 +7,7 @@ import {
   updateProduct,
   deleteProduct,
   getAllCategories,
+  getLowStockProducts,
 } from '../controllers/product.controller';
 import { authenticate, isAdmin } from '../middleware/auth.middleware';
 
@@ -16,6 +17,10 @@ const router = Router();
 router.get('/', getAllProducts);
 router.get('/featured', getFeaturedProducts);
 router.get('/categories', getAllCategories);
+
+// Admin helper routes
+router.get('/low-stock', authenticate, isAdmin, getLowStockProducts);
+
 router.get('/:slug', getProductBySlug);
 
 // Admin routes

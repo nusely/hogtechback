@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
+import { AuthRequest } from '../middleware/auth.middleware';
 import { supabaseAdmin } from '../utils/supabaseClient';
+import { commitDiscountUsage, evaluateDiscount } from '../services/discount.service';
 import enhancedEmailService from '../services/enhanced-email.service';
 import pdfService from '../services/pdf.service';
 
@@ -46,7 +48,7 @@ export class OrderController {
   }
 
   // Get order by ID
-  async getOrderById(req: Request, res: Response) {
+  async getOrderById(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -61,6 +63,25 @@ export class OrderController {
         .single();
 
       if (error) throw error;
+
+      const currentUser = req.user;
+      const isAdminUser = currentUser?.role === 'admin';
+
+      if (!isAdminUser) {
+        if (!currentUser) {
+          return res.status(401).json({
+            success: false,
+            message: 'Unauthorized',
+          });
+        }
+
+        if (data.user_id !== currentUser.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this order',
+          });
+        }
+      }
 
       res.json({
         success: true,
@@ -443,11 +464,11 @@ export class OrderController {
         user_id,
         order_number, // Optional - will be generated if not provided
         subtotal,
-        discount,
+        discount_code,
         tax,
         delivery_fee,
         delivery_option,
-        total,
+        total: provided_total,
         payment_method,
         delivery_address,
         order_items,
@@ -474,13 +495,78 @@ export class OrderController {
         });
       }
 
-      if (!total || total <= 0) {
-        console.error('❌ Order creation failed: Invalid total amount');
+      const providedTotal = typeof provided_total === 'number' ? Number(provided_total) : null;
+
+      const sanitizedOrderItems = order_items.map((item: any) => ({
+        product_id: item.product_id ?? item.id ?? null,
+        product_name: item.product_name || item.name || 'Deal Product',
+        quantity: Number(item.quantity) || 1,
+        unit_price: Number(
+          item.unit_price ?? item.price ?? item.original_price ?? 0
+        ),
+        subtotal: Number(item.subtotal ?? item.total_price ?? 0),
+      }));
+
+      const computedSubtotal = sanitizedOrderItems.reduce((sum, item) => sum + item.subtotal, 0);
+      const normalizedDeliveryFee = Number(delivery_fee ?? delivery_option?.price ?? 0) || 0;
+      const normalizedTax = Number(tax ?? 0) || 0;
+
+      let appliedDiscountAmount = 0;
+      let appliedDiscountCode: string | null = null;
+      let adjustedDeliveryFee = normalizedDeliveryFee;
+      let discountRecordId: string | null = null;
+
+      if (discount_code) {
+        try {
+          const evaluation = await evaluateDiscount({
+            code: discount_code,
+            subtotal: computedSubtotal,
+            deliveryFee: normalizedDeliveryFee,
+            items: sanitizedOrderItems,
+          });
+
+          appliedDiscountAmount = Number(evaluation.discountAmount.toFixed(2));
+          adjustedDeliveryFee = Number(evaluation.adjustedDeliveryFee.toFixed(2));
+          appliedDiscountCode = evaluation.code;
+          discountRecordId = evaluation.discountId;
+        } catch (error: any) {
+          console.error('❌ Discount validation failed:', error);
+          return res.status(400).json({
+            success: false,
+            message: error?.message || 'Unable to apply discount code',
+          });
+        }
+      }
+
+      const computedTotal = Number(
+        (computedSubtotal - appliedDiscountAmount + adjustedDeliveryFee + normalizedTax).toFixed(2)
+      );
+
+      if (computedTotal <= 0) {
+        console.error('❌ Order creation failed: Computed total amount invalid', {
+          computedSubtotal,
+          appliedDiscountAmount,
+          adjustedDeliveryFee,
+          normalizedTax,
+        });
         return res.status(400).json({
           success: false,
-          message: 'Invalid total amount',
-          error: 'Total must be greater than 0',
+          message: 'Invalid order total after applying discount',
         });
+      }
+
+      if (providedTotal !== null) {
+        if (providedTotal <= 0) {
+          console.warn('⚠️ Client provided non-positive total. Using server computed total instead.', {
+            providedTotal,
+            computedTotal,
+          });
+        } else if (Math.abs(providedTotal - computedTotal) > 0.5) {
+          console.warn('⚠️ Client/server total mismatch detected.', {
+            providedTotal,
+            computedTotal,
+          });
+        }
       }
 
       // Generate order number if not provided (backend generates sequential number)
@@ -490,7 +576,7 @@ export class OrderController {
       // Map delivery_address to shipping_address and include delivery_option in the address JSON
       const shippingAddress = delivery_address ? {
         ...delivery_address,
-        delivery_option: delivery_option || { name: 'Standard', price: delivery_fee || 0 },
+        delivery_option: delivery_option || { name: 'Standard', price: adjustedDeliveryFee },
       } : null;
 
       // Create order
@@ -499,11 +585,11 @@ export class OrderController {
       const orderInsertData: any = {
         user_id,
         order_number: finalOrderNumber,
-        subtotal,
-        discount,
-        tax,
-        shipping_fee: delivery_fee || 0,
-        total,
+        subtotal: Number(computedSubtotal.toFixed(2)),
+        discount: appliedDiscountAmount,
+        tax: normalizedTax,
+        shipping_fee: adjustedDeliveryFee,
+        total: computedTotal,
         payment_method,
         shipping_address: shippingAddress ? {
           ...shippingAddress,
@@ -511,6 +597,7 @@ export class OrderController {
           ...(payment_reference ? { payment_reference } : {}),
         } : null,
         notes: notes || null,
+        discount_code: appliedDiscountCode,
         status: 'pending',
         payment_status: payment_method === 'cash_on_delivery' ? 'pending' : 'pending', // Will be updated when payment verified
       };
@@ -535,17 +622,71 @@ export class OrderController {
         user_id: orderData.user_id,
       });
 
+      // Determine which order items map to actual catalog products
+      const productIdCandidates = Array.from(
+        new Set(
+          order_items
+            .map((item: any) => {
+              if (typeof item.product_id === 'string' && item.product_id.trim().length > 0) {
+                return item.product_id.trim();
+              }
+              if (typeof item.id === 'string' && item.id.trim().length > 0) {
+                return item.id.trim();
+              }
+              return null;
+            })
+            .filter((id: string | null): id is string => id !== null)
+        )
+      );
+
+      let validProductIds = new Set<string>();
+      if (productIdCandidates.length > 0) {
+        const { data: existingProducts, error: existingProductsError } = await supabaseAdmin
+          .from('products')
+          .select('id')
+          .in('id', productIdCandidates);
+
+        if (existingProductsError) {
+          console.warn('⚠️ Error validating product references for order:', existingProductsError);
+        } else if (existingProducts) {
+          validProductIds = new Set(existingProducts.map((product: any) => product.id));
+        }
+      }
+
       // Create order items and decrease stock
-      const orderItems = order_items.map((item: any) => ({
-        order_id: orderData.id,
-        product_id: item.product_id,
-        product_name: item.product_name,
-        product_image: item.product_image,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_price: item.subtotal || item.total_price || (item.unit_price * item.quantity), // Use total_price as per schema
-        selected_variants: item.selected_variants,
-      }));
+      let hasStandaloneItems = false;
+
+      const orderItems = order_items.map((item: any) => {
+        const candidateId = typeof item.product_id === 'string' && item.product_id.trim().length > 0
+          ? item.product_id.trim()
+          : typeof item.id === 'string' && item.id.trim().length > 0
+            ? item.id.trim()
+            : null;
+        const hasValidProduct = !!(candidateId && validProductIds.has(candidateId));
+
+        if (!hasValidProduct) {
+          hasStandaloneItems = true;
+        }
+
+        const quantity = Number(item.quantity) || 1;
+        const unitPrice = Number(
+          item.unit_price ?? item.price ?? item.original_price ?? 0
+        );
+        const totalPrice = Number(
+          item.subtotal ?? item.total_price ?? unitPrice * quantity
+        );
+
+        return {
+          order_id: orderData.id,
+          product_id: hasValidProduct ? candidateId : null,
+          product_name: item.product_name || item.name || 'Deal Product',
+          product_image: item.product_image || item.thumbnail || null,
+          quantity,
+          unit_price: unitPrice,
+          total_price: totalPrice,
+          selected_variants: item.selected_variants || {},
+        };
+      });
 
       const { error: itemsError } = await supabaseAdmin
         .from('order_items')
@@ -560,7 +701,11 @@ export class OrderController {
 
       // Decrease stock for each product in the order
       try {
-        for (const item of order_items) {
+        for (const item of orderItems) {
+          if (!item.product_id) {
+            continue;
+          }
+
           const { data: product, error: productError } = await supabaseAdmin
             .from('products')
             .select('stock_quantity, in_stock')
@@ -633,7 +778,7 @@ export class OrderController {
           transaction_reference: payment_reference || `TXN-${orderData.id.slice(0, 8)}`,
           payment_method: payment_method || 'cash_on_delivery',
           payment_provider: payment_method === 'paystack' ? 'paystack' : payment_method === 'cash_on_delivery' ? 'cash' : 'other',
-          amount: total,
+          amount: computedTotal,
           currency: 'GHS',
           status: orderPaymentStatus === 'paid' ? 'success' : orderPaymentStatus === 'failed' ? 'failed' : 'pending',
           payment_status: orderPaymentStatus, // Sync with order payment_status
@@ -641,11 +786,12 @@ export class OrderController {
           metadata: {
             order_number: order_number,
             customer_name: customerName, // Store customer name in metadata
-            subtotal,
-            discount,
-            tax,
-            shipping_fee: delivery_fee || 0,
-            total,
+          subtotal: computedSubtotal,
+          discount: appliedDiscountAmount,
+          discount_code: appliedDiscountCode,
+          tax: normalizedTax,
+          shipping_fee: adjustedDeliveryFee,
+          total: computedTotal,
             payment_method,
             order_id: orderData.id,
           },
@@ -824,10 +970,24 @@ export class OrderController {
         stock_updated: true, // Stock is updated above
       });
 
+      const responsePayload = {
+        ...orderData,
+        order_items: orderItems,
+        shipping_address: shippingAddress,
+        delivery_address: shippingAddress,
+        contains_deal_items: hasStandaloneItems,
+      };
+
+      if (discountRecordId) {
+        await commitDiscountUsage(discountRecordId).catch((error: unknown) => {
+          console.error('⚠️ Failed to commit discount usage:', error);
+        });
+      }
+
       res.json({
         success: true,
         message: 'Order created successfully',
-        data: orderData,
+        data: responsePayload,
       });
     } catch (error: any) {
       console.error('❌ Error creating order:', {
@@ -950,7 +1110,7 @@ export class OrderController {
   }
 
   // Download order PDF
-  async downloadOrderPDF(req: Request, res: Response) {
+  async downloadOrderPDF(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -1001,6 +1161,25 @@ export class OrderController {
       }
 
       if (orderError) throw orderError;
+
+      const currentUser = req.user;
+      const isAdminUser = currentUser?.role === 'admin';
+
+      if (!isAdminUser) {
+        if (!currentUser) {
+          return res.status(401).json({
+            success: false,
+            message: 'Unauthorized',
+          });
+        }
+
+        if (orderData.user_id !== currentUser.id) {
+          return res.status(403).json({
+            success: false,
+            message: 'You do not have access to this order PDF',
+          });
+        }
+      }
 
       // Debug: Log order data before PDF generation
       console.log('Order data for PDF:', {

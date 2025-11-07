@@ -169,12 +169,14 @@ export const deleteFromR2 = async (fileUrl: string): Promise<{ success: boolean;
  */
 export const getSignedUrlForR2 = async (
   key: string,
-  expiresIn: number = 3600
+  expiresIn: number = 3600,
+  contentType?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
   try {
     const command = new PutObjectCommand({
       Bucket: BUCKET_NAME,
       Key: key,
+      ContentType: contentType,
     });
 
     const signedUrl = await getSignedUrl(r2Client, command, { expiresIn });

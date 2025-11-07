@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { supabaseAdmin } from '../utils/supabaseClient';
 import { successResponse, errorResponse, paginatedResponse } from '../utils/responseHandlers';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { settingsService } from '../services/settings.service';
 
 export const getAllProducts = async (req: Request, res: Response) => {
   try {
@@ -196,6 +197,53 @@ export const getAllCategories = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Get categories error:', error);
     return errorResponse(res, error.message);
+  }
+};
+
+const getLowStockThreshold = async (): Promise<number> => {
+  const value = await settingsService.getSetting('inventory_low_stock_threshold');
+  const parsed = parseInt(value || '', 10);
+  if (!Number.isNaN(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return 3;
+};
+
+export const getLowStockProducts = async (req: AuthRequest, res: Response) => {
+  try {
+    const threshold = await getLowStockThreshold();
+
+    const { data, error } = await supabaseAdmin
+      .from('products')
+      .select(
+        `id,
+         name,
+         stock_quantity,
+         in_stock,
+         sku,
+         thumbnail,
+         images,
+         original_price,
+         discount_price,
+         category:categories(name)`
+      )
+      .lte('stock_quantity', threshold)
+      .eq('in_stock', true)
+      .order('stock_quantity', { ascending: true })
+      .limit(100);
+
+    if (error) {
+      throw error;
+    }
+
+    return successResponse(res, {
+      threshold,
+      count: data?.length || 0,
+      products: data || [],
+    });
+  } catch (error: any) {
+    console.error('Get low stock products error:', error);
+    return errorResponse(res, error.message || 'Failed to fetch low stock products');
   }
 };
 

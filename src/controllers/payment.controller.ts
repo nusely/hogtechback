@@ -281,6 +281,58 @@ export class PaymentController {
         const transaction = event.data;
         
         if (transaction.status === 'success') {
+          const transactionReference = transaction.reference;
+
+          if (!transactionReference) {
+            console.error('❌ Webhook payload missing transaction reference');
+            return res.status(400).json({
+              success: false,
+              message: 'Missing transaction reference',
+            });
+          }
+
+          // Idempotency guard: check if this transaction already has an order linked
+          try {
+            const { data: existingTxn, error: existingTxnError } = await supabaseAdmin
+              .from('transactions')
+              .select('id, order_id')
+              .eq('transaction_reference', transactionReference)
+              .maybeSingle();
+
+            if (existingTxnError) {
+              console.warn('⚠️  Unable to check existing transaction for idempotency:', existingTxnError);
+            }
+
+            if (existingTxn?.order_id) {
+              console.log('ℹ️  Webhook already processed for transaction', transactionReference);
+              return res.json({
+                success: true,
+                message: 'Webhook already processed',
+              });
+            }
+
+            // Secondary guard: check orders table for matching payment reference in shipping_address JSON
+            const { data: existingOrder, error: existingOrderError } = await supabaseAdmin
+              .from('orders')
+              .select('id')
+              .eq('shipping_address->>payment_reference', transactionReference)
+              .maybeSingle();
+
+            if (existingOrderError) {
+              console.warn('⚠️  Unable to check existing order for idempotency:', existingOrderError);
+            }
+
+            if (existingOrder) {
+              console.log('ℹ️  Order already exists for transaction reference', transactionReference);
+              return res.json({
+                success: true,
+                message: 'Webhook already processed',
+              });
+            }
+          } catch (idempotencyError) {
+            console.warn('⚠️  Idempotency check failed, continuing processing:', idempotencyError);
+          }
+
           console.log('✅ Payment successful, creating order from webhook...');
           
           // Get checkout data from metadata

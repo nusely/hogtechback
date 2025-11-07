@@ -1,8 +1,56 @@
 import { Router, Request, Response } from 'express';
 import { uploadSingle, uploadMultiple } from '../middleware/upload.middleware';
-import { uploadToR2, uploadMultipleToR2, deleteFromR2, listR2Files } from '../services/r2.service';
+import { uploadToR2, uploadMultipleToR2, deleteFromR2, listR2Files, getSignedUrlForR2 } from '../services/r2.service';
+import { authenticate, isAdmin } from '../middleware/auth.middleware';
+import { validateBody } from '../middleware/validation.middleware';
+import { presignUploadSchema } from '../validation/schemas';
+import { adminAuditLogger } from '../middleware/audit.middleware';
 
 const router = Router();
+
+// Require admin authentication for all upload operations
+router.use(authenticate, isAdmin, adminAuditLogger('uploads'));
+
+router.post('/presign', validateBody(presignUploadSchema), async (req: Request, res: Response) => {
+  try {
+    const { filename, contentType, folder } = req.body as {
+      filename: string;
+      contentType: string;
+      folder?: string;
+    };
+
+    const sanitizedFilename = filename.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const timestamp = Date.now();
+    const targetFolder = (folder || 'uploads')
+      .replace(/\.\./g, '')
+      .replace(/[^a-zA-Z0-9/_-]/g, '_')
+      .replace(/^\/+/, '')
+      .replace(/\/+/g, '/');
+    const key = `${targetFolder}/${timestamp}-${sanitizedFilename}`;
+
+    const { success, url, error } = await getSignedUrlForR2(key, 3600, contentType);
+
+    if (!success || !url) {
+      return res.status(500).json({
+        success: false,
+        error: error || 'Failed to generate signed upload URL',
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      url,
+      key,
+      expiresIn: 3600,
+    });
+  } catch (error) {
+    console.error('Presign error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to generate signed upload URL',
+    });
+  }
+});
 
 /**
  * POST /api/upload (catch-all for backward compatibility)

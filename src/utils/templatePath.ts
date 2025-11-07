@@ -23,3 +23,5 @@ export const resolveTemplatePath = (filename: string): string => {
   const searched = TEMPLATE_SEARCH_PATHS.map((fn) => fn(filename)).join(', ');
   throw new Error(`Email template "${filename}" not found. Checked: ${searched}`);
 };
+
+

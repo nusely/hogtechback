@@ -50,6 +50,20 @@ class SettingsService {
     return settings.get(key) || null;
   }
 
+  async getNumberSetting(key: string, defaultValue: number): Promise<number> {
+    const raw = await this.getSetting(key);
+    if (raw === null || raw === undefined) {
+      return defaultValue;
+    }
+
+    const parsed = parseFloat(raw);
+    if (Number.isNaN(parsed)) {
+      return defaultValue;
+    }
+
+    return parsed;
+  }
+
   /**
    * Check if a boolean setting is enabled
    */

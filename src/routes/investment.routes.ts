@@ -1,10 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { sendInvestmentEmail } from '../services/email.service';
+import { formRateLimiter } from '../middleware/rateLimit.middleware';
+import { captchaGuard } from '../middleware/captcha.middleware';
+import { validateBody } from '../middleware/validation.middleware';
+import { investmentFormSchema } from '../validation/schemas';
 
 const router = Router();
 
 // POST /api/investment - Submit investment form
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', formRateLimiter, captchaGuard, validateBody(investmentFormSchema), async (req: Request, res: Response) => {
   try {
     const { fullName, email, phone, tier, amount, plan, message } = req.body;
 

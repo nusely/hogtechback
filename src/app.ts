@@ -10,6 +10,9 @@ import uploadRoutes from './routes/upload.routes';
 import contactRoutes from './routes/contact.routes';
 import authRoutes from './routes/auth.routes';
 import dealRoutes from './routes/deal.routes';
+import discountRoutes from './routes/discount.routes';
+import logRoutes from './routes/log.routes';
+import settingsRoutes from './routes/settings.routes';
 import { errorHandler, notFound } from './middleware/error.middleware';
 
 const app: Application = express();
@@ -51,6 +54,9 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/deals', dealRoutes);
+app.use('/api/discounts', discountRoutes);
+app.use('/api/logs', logRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Error handling
 app.use(notFound);
