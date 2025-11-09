@@ -102,6 +102,44 @@ export const updateDeal = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updates = req.body;
+    const normalizedUpdates: Record<string, any> = { ...updates };
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'stock_quantity')) {
+      const rawStock = normalizedUpdates.stock_quantity;
+      let parsedStock = 0;
+      if (typeof rawStock === 'number' && Number.isFinite(rawStock)) {
+        parsedStock = Math.max(0, Math.trunc(rawStock));
+      } else if (typeof rawStock === 'string' && rawStock.trim().length > 0) {
+        const parsed = parseInt(rawStock, 10);
+        parsedStock = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+      }
+      normalizedUpdates.stock_quantity = parsedStock;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'deal_price')) {
+      const rawDealPrice = normalizedUpdates.deal_price;
+      if (rawDealPrice === null || rawDealPrice === undefined || rawDealPrice === '') {
+        normalizedUpdates.deal_price = null;
+      } else {
+        const parsed = typeof rawDealPrice === 'number' ? rawDealPrice : parseFloat(rawDealPrice);
+        normalizedUpdates.deal_price = Number.isFinite(parsed) ? parseFloat(parsed.toFixed(2)) : null;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'discount_percentage')) {
+      const rawDiscount = normalizedUpdates.discount_percentage;
+      if (rawDiscount === null || rawDiscount === undefined || rawDiscount === '') {
+        normalizedUpdates.discount_percentage = 0;
+      } else {
+        const parsed =
+          typeof rawDiscount === 'number'
+            ? rawDiscount
+            : parseInt(String(rawDiscount), 10);
+        normalizedUpdates.discount_percentage = Number.isNaN(parsed)
+          ? 0
+          : Math.min(100, Math.max(0, parsed));
+      }
+    }
 
     // Validate date range if both dates are being updated
     if (updates.start_date && updates.end_date) {
@@ -197,6 +235,7 @@ export const addProductToDeal = async (req: AuthRequest, res: Response) => {
       product_key_features,
       product_specifications,
       original_price,
+      stock_quantity,
     } = req.body;
 
     // Either product_id OR standalone product info must be provided
@@ -216,6 +255,14 @@ export const addProductToDeal = async (req: AuthRequest, res: Response) => {
     if (product_id) {
       insertData.product_id = product_id;
     } else {
+      let parsedStockQuantity = 0;
+      if (typeof stock_quantity === 'number' && Number.isFinite(stock_quantity)) {
+        parsedStockQuantity = Math.max(0, Math.trunc(stock_quantity));
+      } else if (typeof stock_quantity === 'string' && stock_quantity.trim().length > 0) {
+        const parsed = parseInt(stock_quantity, 10);
+        parsedStockQuantity = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+      }
+
       insertData.product_name = product_name;
       insertData.product_description = product_description || null;
       insertData.product_image_url = product_image_url || null;
@@ -223,6 +270,7 @@ export const addProductToDeal = async (req: AuthRequest, res: Response) => {
       insertData.product_key_features = product_key_features || null;
       insertData.product_specifications = product_specifications || null;
       insertData.original_price = parseFloat(original_price);
+      insertData.stock_quantity = parsedStockQuantity;
     }
 
     const { data, error } = await supabaseAdmin
@@ -245,16 +293,51 @@ export const updateDealProduct = async (req: AuthRequest, res: Response) => {
   try {
     const { dealId, productId } = req.params;
     const updates = req.body;
+    const normalizedUpdates: Record<string, any> = { ...updates };
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'stock_quantity')) {
+      const rawStock = normalizedUpdates.stock_quantity;
+      let parsedStock = 0;
+      if (typeof rawStock === 'number' && Number.isFinite(rawStock)) {
+        parsedStock = Math.max(0, Math.trunc(rawStock));
+      } else if (typeof rawStock === 'string' && rawStock.trim().length > 0) {
+        const parsed = parseInt(rawStock, 10);
+        parsedStock = Number.isNaN(parsed) ? 0 : Math.max(0, parsed);
+      }
+      normalizedUpdates.stock_quantity = parsedStock;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'deal_price')) {
+      const rawDealPrice = normalizedUpdates.deal_price;
+      if (rawDealPrice === null || rawDealPrice === undefined || rawDealPrice === '') {
+        normalizedUpdates.deal_price = null;
+      } else {
+        const parsed =
+          typeof rawDealPrice === 'number' ? rawDealPrice : parseFloat(String(rawDealPrice));
+        normalizedUpdates.deal_price = Number.isFinite(parsed) ? parseFloat(parsed.toFixed(2)) : null;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(normalizedUpdates, 'discount_percentage')) {
+      const rawDiscount = normalizedUpdates.discount_percentage;
+      if (rawDiscount === null || rawDiscount === undefined || rawDiscount === '') {
+        normalizedUpdates.discount_percentage = 0;
+      } else {
+        const parsed =
+          typeof rawDiscount === 'number' ? rawDiscount : parseInt(String(rawDiscount), 10);
+        normalizedUpdates.discount_percentage = Number.isNaN(parsed)
+          ? 0
+          : Math.min(100, Math.max(0, parsed));
+      }
+    }
 
     // First, try to find by product_id (existing products)
-    let query = supabaseAdmin
+    const { data: existingProduct, error: checkError } = await supabaseAdmin
       .from('deal_products')
       .select('id')
       .eq('deal_id', dealId)
       .eq('product_id', productId)
       .maybeSingle();
-
-    const { data: existingProduct, error: checkError } = await query;
 
     if (checkError && checkError.code !== 'PGRST116') { // PGRST116 is "no rows found"
       throw checkError;
@@ -265,14 +348,14 @@ export const updateDealProduct = async (req: AuthRequest, res: Response) => {
       // Update by product_id (existing product)
       updateQuery = supabaseAdmin
         .from('deal_products')
-        .update(updates)
+        .update(normalizedUpdates)
         .eq('deal_id', dealId)
         .eq('product_id', productId);
     } else {
       // Try updating by deal_product.id (standalone products)
       updateQuery = supabaseAdmin
         .from('deal_products')
-        .update(updates)
+        .update(normalizedUpdates)
         .eq('deal_id', dealId)
         .eq('id', productId);
     }

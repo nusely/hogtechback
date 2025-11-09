@@ -576,8 +576,12 @@ class EnhancedEmailService {
     return items.map(item => {
       const unitPrice = item.unit_price || item.price || 0;
       const subtotal = item.subtotal || (unitPrice * (item.quantity || 0));
+      const productImage = this.normalizeImageUrl(item.product_image || item.image || null);
       return `<tr>
-        <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.product_name || 'Product'}</td>
+        <td style="padding: 10px; border-bottom: 1px solid #eee;">
+          ${productImage ? `<img src="${productImage}" alt="${item.product_name || 'Product'}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; margin-right: 10px;">` : ''}
+          ${item.product_name || 'Product'}
+        </td>
         <td style="padding: 10px; border-bottom: 1px solid #eee;">${item.quantity || 0}</td>
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${unitPrice.toFixed(2)}</td>
         <td style="padding: 10px; border-bottom: 1px solid #eee;">GHS ${subtotal.toFixed(2)}</td>
@@ -594,7 +598,7 @@ class EnhancedEmailService {
       const quantity = item.quantity || 0;
       const unitPrice = item.unit_price || item.price || 0;
       const subtotal = item.total_price || item.subtotal || (unitPrice * quantity);
-      const productImage = item.product_image || item.image || 'https://images.ventechgadgets.com/placeholder.png';
+      const productImage = this.normalizeImageUrl(item.product_image || item.image || null);
       const variantInfo = item.selected_variants 
         ? Object.entries(item.selected_variants).map(([key, value]: [string, any]) => `${key}: ${value}`).join(', ')
         : '';
@@ -614,6 +618,53 @@ class EnhancedEmailService {
         </div>
       `;
     }).join('');
+  }
+
+  private normalizeImageUrl(imageUrl?: string | null): string {
+    const placeholder = `${process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.ventechgadgets.com'}/placeholder-product.webp`;
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return placeholder;
+    }
+
+    let url = imageUrl.trim();
+    if (!url) {
+      return placeholder;
+    }
+
+    if (url.startsWith('data:')) {
+      return url;
+    }
+
+    const frontendBase =
+      process.env.FRONTEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      'https://ventechgadgets.com';
+    const normalizedFrontendBase = frontendBase.replace(/\/$/, '');
+    const r2Base = process.env.R2_PUBLIC_URL
+      ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
+      : 'https://files.ventechgadgets.com';
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith('/_next/image')) {
+        const original = parsed.searchParams.get('url');
+        if (original) {
+          return this.normalizeImageUrl(decodeURIComponent(original));
+        }
+      }
+      return parsed.href;
+    } catch {
+      if (url.startsWith('//')) {
+        return `https:${url}`;
+      }
+      if (url.startsWith('/')) {
+        return `${normalizedFrontendBase}${url}`;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        return `${r2Base}/${url.replace(/^\//, '')}`;
+      }
+      return url;
+    }
   }
 
   // Send admin order notification email

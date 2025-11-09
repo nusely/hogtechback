@@ -47,6 +47,52 @@ export class OrderController {
     }
   }
 
+  private normalizeImageUrl(imageUrl?: string | null): string | null {
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return null;
+    }
+
+    let url = imageUrl.trim();
+    if (!url) {
+      return null;
+    }
+
+    if (url.startsWith('data:')) {
+      return url;
+    }
+
+    const frontendBase =
+      process.env.FRONTEND_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      'https://ventechgadgets.com';
+    const normalizedFrontendBase = frontendBase.replace(/\/$/, '');
+    const r2Base = process.env.R2_PUBLIC_URL
+      ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
+      : 'https://files.ventechgadgets.com';
+
+    try {
+      const parsed = new URL(url);
+      if (parsed.pathname.startsWith('/_next/image')) {
+        const originalUrl = parsed.searchParams.get('url');
+        if (originalUrl) {
+          return this.normalizeImageUrl(decodeURIComponent(originalUrl));
+        }
+      }
+      return parsed.href;
+    } catch {
+      if (url.startsWith('//')) {
+        return `https:${url}`;
+      }
+      if (url.startsWith('/')) {
+        return `${normalizedFrontendBase}${url}`;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        return `${r2Base}/${url.replace(/^\//, '')}`;
+      }
+      return url;
+    }
+  }
+
   // Get order by ID
   async getOrderById(req: AuthRequest, res: Response) {
     try {
@@ -749,15 +795,42 @@ export class OrderController {
           item.subtotal ?? item.total_price ?? unitPrice * quantity
         );
 
+        const normalizedImage = this.normalizeImageUrl(item.product_image || item.thumbnail || null);
+        const standaloneSourceId = !hasValidProduct
+          ? (
+            typeof item.standalone_source_id === 'string' && item.standalone_source_id.trim().length > 0
+              ? item.standalone_source_id.trim()
+              : typeof item.id === 'string' && item.id.trim().length > 0
+                ? item.id.trim()
+                : null
+          )
+          : null;
+
+        const dealSnapshot = !hasValidProduct
+          ? {
+              source: 'deal_product',
+              deal_product_id: standaloneSourceId,
+              deal_id: item.deal_id || null,
+              product_name: item.product_name || item.name || 'Deal Product',
+              product_description: item.product_description || null,
+              image: normalizedImage,
+              unit_price: unitPrice,
+              original_price: item.original_price ?? item.price ?? null,
+              discount_percentage: item.discount_percentage ?? null,
+            }
+          : null;
+
         return {
           order_id: orderData.id,
           product_id: hasValidProduct ? candidateId : null,
           product_name: item.product_name || item.name || 'Deal Product',
-          product_image: item.product_image || item.thumbnail || null,
+          product_image: normalizedImage,
           quantity,
           unit_price: unitPrice,
           total_price: totalPrice,
           selected_variants: item.selected_variants || {},
+          deal_product_id: standaloneSourceId,
+          deal_snapshot: dealSnapshot,
         };
       });
 
@@ -775,36 +848,66 @@ export class OrderController {
       // Decrease stock for each product in the order
       try {
         for (const item of orderItems) {
-          if (!item.product_id) {
-            continue;
-          }
-
-          const { data: product, error: productError } = await supabaseAdmin
-            .from('products')
-            .select('stock_quantity, in_stock')
-            .eq('id', item.product_id)
-            .single();
-
-          if (!productError && product) {
-            const currentStock = product.stock_quantity || 0;
-            const newStock = Math.max(0, currentStock - item.quantity);
-            const newInStock = newStock > 0;
-
-            const { error: updateError } = await supabaseAdmin
+          if (item.product_id) {
+            const { data: product, error: productError } = await supabaseAdmin
               .from('products')
-              .update({
-                stock_quantity: newStock,
-                in_stock: newInStock,
-              })
-              .eq('id', item.product_id);
+              .select('stock_quantity, in_stock')
+              .eq('id', item.product_id)
+              .single();
 
-            if (updateError) {
-              console.error(`❌ Failed to update stock for product ${item.product_id}:`, updateError);
+            if (!productError && product) {
+              const currentStock = product.stock_quantity || 0;
+              const newStock = Math.max(0, currentStock - item.quantity);
+              const newInStock = newStock > 0;
+
+              const { error: updateError } = await supabaseAdmin
+                .from('products')
+                .update({
+                  stock_quantity: newStock,
+                  in_stock: newInStock,
+                })
+                .eq('id', item.product_id);
+
+              if (updateError) {
+                console.error(`❌ Failed to update stock for product ${item.product_id}:`, updateError);
+              } else {
+                console.log(`✅ Decreased stock for product ${item.product_id}: ${currentStock} → ${newStock}`);
+              }
             } else {
-              console.log(`✅ Decreased stock for product ${item.product_id}: ${currentStock} → ${newStock}`);
+              console.error(`❌ Error fetching product ${item.product_id} for stock update:`, productError);
             }
-          } else {
-            console.error(`❌ Error fetching product ${item.product_id} for stock update:`, productError);
+          } else if (item.deal_product_id) {
+            const { data: dealProduct, error: dealProductError } = await supabaseAdmin
+              .from('deal_products')
+              .select('stock_quantity')
+              .eq('id', item.deal_product_id)
+              .single();
+
+            if (!dealProductError && dealProduct && dealProduct.stock_quantity !== null) {
+              const currentStock = dealProduct.stock_quantity || 0;
+              const newStock = Math.max(0, currentStock - item.quantity);
+
+              const { error: updateDealStockError } = await supabaseAdmin
+                .from('deal_products')
+                .update({ stock_quantity: newStock })
+                .eq('id', item.deal_product_id);
+
+              if (updateDealStockError) {
+                console.error(
+                  `❌ Failed to update stock for deal product ${item.deal_product_id}:`,
+                  updateDealStockError
+                );
+              } else {
+                console.log(
+                  `✅ Decreased stock for deal product ${item.deal_product_id}: ${currentStock} → ${newStock}`
+                );
+              }
+            } else if (dealProductError) {
+              console.error(
+                `❌ Error fetching deal product ${item.deal_product_id} for stock update:`,
+                dealProductError
+              );
+            }
           }
         }
       } catch (stockError) {
