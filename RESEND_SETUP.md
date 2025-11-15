@@ -11,29 +11,29 @@
 ### Backend .env
 ```env
 RESEND_API_KEY=re_MnujjdYu_121DroDAHMe5fbZbAp1S8ccF
-RESEND_FROM_EMAIL=VENTECH <ventechgadgets@gmail.com>
+RESEND_FROM_EMAIL=Hedgehog Technologies <support@hogtechgh.com>
 ```
 
 ## ⚠️ Important Notes
 
 ### 1. Domain Verification (Required for Custom Email)
-To send emails from `ventechgadgets@gmail.com`, you need to:
+To send emails from `support@hogtechgh.com`, you need to:
 
 1. **Verify your domain in Resend Dashboard:**
    - Go to https://resend.com/domains
-   - Add your domain (e.g., `ventechgadgets.com` or `gmail.com`)
+   - Add your domain (e.g., `hogtechgh.com`)
    - Add DNS records as instructed
    - Wait for verification (usually a few minutes)
 
 2. **For Gmail addresses:**
    - Gmail doesn't allow sending from `@gmail.com` via third-party services
-   - You should use a custom domain (e.g., `noreply@ventechgadgets.com`)
+   - You should use a custom domain (e.g., `noreply@hogtechgh.com`)
    - Or use Resend's default domain for testing: `onboarding@resend.dev`
 
 ### 2. Testing Email
 For testing, you can temporarily use:
 ```env
-RESEND_FROM_EMAIL=VENTECH <onboarding@resend.dev>
+RESEND_FROM_EMAIL=Hedgehog Technologies <onboarding@resend.dev>
 ```
 
 This works immediately without domain verification.

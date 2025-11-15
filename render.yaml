@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: ventech-backend
+    name: hogtech-backend
     env: node
     region: oregon
     plan: starter
@@ -12,7 +12,7 @@ services:
       - key: PORT
         value: 5000
       - key: FRONTEND_URL
-        value: https://ventechwebsite.vercel.app
+        value: https://hogtechgh.com
       # Supabase Configuration
       - key: SUPABASE_URL
         sync: false
@@ -27,9 +27,9 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: RESEND_SUPPORT_EMAIL
-        value: VENTECH GADGETS <support@ventechgadgets.com>
+        value: Hedgehog Technologies <support@hogtechgh.com>
       - key: RESEND_NOREPLY_EMAIL
-        value: VENTECH GADGETS <noreply@ventechgadgets.com>
+        value: Hedgehog Technologies <noreply@hogtechgh.com>
       # Cloudflare R2 Storage (if using)
       - key: R2_ACCOUNT_ID
         sync: false
@@ -40,7 +40,7 @@ services:
       - key: R2_BUCKET_NAME
         sync: false
       - key: R2_PUBLIC_URL
-        value: https://files.ventechgadgets.com
+        value: https://files.hogtechgh.com
       # Paystack Payment Gateway
       - key: PAYSTACK_SECRET_KEY
         sync: false

@@ -66,11 +66,11 @@ export class OrderController {
     const frontendBase =
       process.env.FRONTEND_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
-      'https://ventechgadgets.com';
+      'https://hogtechgh.com';
     const normalizedFrontendBase = frontendBase.replace(/\/$/, '');
     const r2Base = process.env.R2_PUBLIC_URL
       ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
-      : 'https://files.ventechgadgets.com';
+      : 'https://files.hogtechgh.com';
 
     try {
       const parsed = new URL(url);
@@ -321,6 +321,133 @@ export class OrderController {
       res.status(500).json({
         success: false,
         message: 'Failed to update order status',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  // Update order details (shipping cost, notes, etc.)
+  async updateOrderDetails(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { shipping_fee, notes } = req.body;
+
+      // Validate shipping_fee if provided
+      if (shipping_fee !== undefined && (isNaN(Number(shipping_fee)) || Number(shipping_fee) < 0)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid shipping fee. Must be a non-negative number',
+        });
+      }
+
+      // Get current order to calculate new total
+      const { data: currentOrder, error: fetchError } = await supabaseAdmin
+        .from('orders')
+        .select('subtotal, discount, tax, shipping_fee, total, notes')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!currentOrder) {
+        return res.status(404).json({
+          success: false,
+          message: 'Order not found',
+        });
+      }
+
+      // Calculate new total if shipping_fee is being updated
+      const newShippingFee = shipping_fee !== undefined ? Number(shipping_fee) : currentOrder.shipping_fee;
+      const newTotal = Number(currentOrder.subtotal) - Number(currentOrder.discount || 0) + Number(currentOrder.tax || 0) + newShippingFee;
+
+      // Prepare update data
+      const updateData: any = {
+        updated_at: new Date().toISOString(),
+      };
+
+      if (shipping_fee !== undefined) {
+        updateData.shipping_fee = newShippingFee;
+        updateData.total = newTotal;
+      }
+
+      if (notes !== undefined) {
+        updateData.notes = notes || null;
+      }
+
+      // Update order
+      const { data: orderData, error: orderError } = await supabaseAdmin
+        .from('orders')
+        .update(updateData)
+        .eq('id', id)
+        .select(`
+          *,
+          user:users!orders_user_id_fkey(id, first_name, last_name, email),
+          customer:customers!orders_customer_id_fkey(id, full_name, email, phone, source),
+          order_items:order_items(*)
+        `)
+        .single();
+
+      if (orderError) throw orderError;
+
+      // Send email notification (don't fail order update if email fails)
+      try {
+        // Determine customer email and name
+        let customerEmail: string | null = null;
+        let customerName: string = 'Customer';
+        
+        if (orderData.customer && orderData.customer.email) {
+          customerEmail = orderData.customer.email;
+          customerName = orderData.customer.full_name || customerName;
+        } else if (orderData.user && orderData.user.email) {
+          customerEmail = orderData.user.email;
+          customerName = `${orderData.user.first_name || ''} ${orderData.user.last_name || ''}`.trim() || 'Customer';
+        } else if (orderData.shipping_address && (orderData.shipping_address as any)?.email) {
+          customerEmail = (orderData.shipping_address as any).email;
+          customerName = orderData.shipping_address?.full_name || orderData.shipping_address?.first_name || 'Guest Customer';
+        }
+
+        if (customerEmail) {
+          const emailData = {
+            ...orderData,
+            customer_name: customerName,
+            customer_email: customerEmail,
+            items: orderData.order_items || [],
+            delivery_address: orderData.shipping_address || orderData.delivery_address,
+          };
+
+          // Send order update email (not status update, but order details update)
+          const emailResult = await enhancedEmailService.sendOrderUpdate(emailData, {
+            shipping_fee_changed: shipping_fee !== undefined && shipping_fee !== currentOrder.shipping_fee,
+            notes_added: notes !== undefined && notes !== currentOrder.notes,
+            old_shipping_fee: currentOrder.shipping_fee,
+            new_shipping_fee: newShippingFee,
+            notes: notes || orderData.notes,
+          });
+
+          if (emailResult.skipped) {
+            console.log(`Order update email skipped: ${emailResult.reason}`);
+          } else if (emailResult.success) {
+            console.log('Order update email sent successfully to', customerEmail);
+          } else {
+            console.error('Failed to send order update email:', emailResult.reason);
+          }
+        } else {
+          console.warn('No email found for order update. Order:', orderData.id);
+        }
+      } catch (emailError: any) {
+        // Don't fail the order update if email sending fails
+        console.error('Error sending order update email (order update still succeeded):', emailError?.message || emailError);
+      }
+
+      res.json({
+        success: true,
+        message: 'Order details updated successfully',
+        data: orderData,
+      });
+    } catch (error) {
+      console.error('Error updating order details:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update order details',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }
@@ -1203,7 +1330,7 @@ export class OrderController {
 
       // Send admin notification email
       try {
-        console.log('📧 Sending admin order notification email to ventechgadgets@gmail.com');
+        console.log('📧 Sending admin order notification email to support@hogtechgh.com');
         const emailData = {
           ...orderData,
           customer_name: resolvedCustomer?.full_name || userData?.full_name || shippingAddress?.full_name || 'Guest Customer',
@@ -1215,7 +1342,7 @@ export class OrderController {
 
         const adminEmailResult = await enhancedEmailService.sendAdminOrderNotification(emailData);
         if (adminEmailResult.success) {
-          console.log('✅ Admin order notification email sent successfully to ventechgadgets@gmail.com');
+          console.log('✅ Admin order notification email sent successfully to support@hogtechgh.com');
         } else {
           console.error('❌ Failed to send admin order notification email:', adminEmailResult.reason);
         }

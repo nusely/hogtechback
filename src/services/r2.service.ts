@@ -11,7 +11,7 @@ const r2Client = new S3Client({
   },
 });
 
-const BUCKET_NAME = process.env.R2_BUCKET_NAME || 'ventech-images';
+const BUCKET_NAME = process.env.R2_BUCKET_NAME || 'hogtech-assets';
 const PUBLIC_URL = process.env.R2_PUBLIC_URL;
 
 /**

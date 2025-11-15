@@ -7,8 +7,8 @@ export interface AuthRequest extends Request {
 }
 
 export const SPECIAL_AUDIT_EMAILS = new Set([
-  'superadmin@ventechgadgets.com',
-  'cimons@ventechgadgets.com',
+  'superadmin@hogtechgh.com',
+  'cimons@hogtechgh.com',
 ]);
 
 export const authenticate = async (

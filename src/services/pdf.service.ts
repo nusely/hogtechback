@@ -102,7 +102,8 @@ class PDFService {
       // Download logo from R2
       // Note: PDFKit supports JPEG, PNG, GIF. For WebP, we'll try to use it directly
       // If it fails, it will fallback to text
-      const logoUrl = 'https://files.ventechgadgets.com/ventech_logo_1.webp';
+      const assetBase = process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.hogtechgh.com';
+      const logoUrl = `${assetBase}/hogtech_logo_primary.webp`;
       const logoResponse = await axios.get(logoUrl, { 
         responseType: 'arraybuffer',
         timeout: 5000 // 5 second timeout
@@ -122,10 +123,10 @@ class PDFService {
       // Company name next to logo
       doc.fontSize(24)
          .fillColor('#FF7A19')
-         .text('VENTECH', 120, 55)
+         .text('HOGTECH', 120, 55)
          .fontSize(12)
          .fillColor('#3A3A3A')
-         .text('Gadgets & Electronics', 120, 80);
+         .text('Hedgehog Technologies', 120, 80);
     } catch (error) {
       // If logo fails, use fallback
       throw error;
@@ -146,10 +147,10 @@ class PDFService {
     // Fallback to text if logo fails to load
     doc.fontSize(24)
        .fillColor('#FF7A19')
-       .text('VENTECH', 50, 50)
+       .text('HOGTECH', 50, 50)
        .fontSize(12)
        .fillColor('#3A3A3A')
-       .text('Gadgets & Electronics', 50, 80);
+       .text('Hedgehog Technologies', 50, 80);
 
     // Document Title
     doc.fontSize(18)
@@ -312,10 +313,10 @@ class PDFService {
     
     doc.fontSize(10)
        .fillColor('#3A3A3A')
-       .text('Thank you for choosing VENTECH!', 50, y)
-       .text('For support, contact us at support@ventechgadgets.com', 50, y + 15)
+       .text('Thank you for choosing Hogtech!', 50, y)
+       .text('For support, contact us at support@hogtechgh.com', 50, y + 15)
        .text('Phone: +233 55 134 4310', 50, y + 30)
-       .text('Website: www.ventechgadgets.com', 50, y + 45);
+       .text('Website: www.hogtechgh.com', 50, y + 45);
   }
 
   private formatAddress(address: any): string {

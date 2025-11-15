@@ -32,7 +32,7 @@ async function promoteUserRole(email: string, role: 'admin' | 'superadmin') {
   }
 }
 
-const emailArg = process.argv[2] || 'ventechgadgets@gmail.com';
+const emailArg = process.argv[2] || 'support@hogtechgh.com';
 const roleArg = (process.argv[3] as 'admin' | 'superadmin') || 'admin';
 
 if (!['admin', 'superadmin'].includes(roleArg)) {

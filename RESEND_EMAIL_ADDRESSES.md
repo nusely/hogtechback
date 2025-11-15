@@ -4,7 +4,7 @@
 
 You're now using **two email addresses** for different purposes:
 
-### 1. **Support Email** (`support@ventechgadgets.com`)
+### 1. **Support Email** (`support@hogtechgh.com`)
 **Used for:** Customer-facing emails where replies are expected
 - ✅ Order confirmations
 - ✅ Order status updates
@@ -15,7 +15,7 @@ You're now using **two email addresses** for different purposes:
 
 **Why:** Customers can reply to these emails directly
 
-### 2. **No-Reply Email** (`noreply@ventechgadgets.com`)
+### 2. **No-Reply Email** (`noreply@hogtechgh.com`)
 **Used for:** Automated marketing notifications
 - ✅ Wishlist reminders
 - ✅ Cart abandonment emails
@@ -29,8 +29,8 @@ You're now using **two email addresses** for different purposes:
 In your `.env` file:
 ```env
 RESEND_API_KEY=re_MnujjdYu_121DroDAHMe5fbZbAp1S8ccF
-RESEND_SUPPORT_EMAIL=VENTECH GADGETS <support@ventechgadgets.com>
-RESEND_NOREPLY_EMAIL=VENTECH GADGETS <noreply@ventechgadgets.com>
+RESEND_SUPPORT_EMAIL=Hedgehog Technologies <support@hogtechgh.com>
+RESEND_NOREPLY_EMAIL=Hedgehog Technologies <noreply@hogtechgh.com>
 ```
 
 ## ⚠️ Important: Domain Verification Required
@@ -38,7 +38,7 @@ RESEND_NOREPLY_EMAIL=VENTECH GADGETS <noreply@ventechgadgets.com>
 **Both email addresses need to be verified in Resend:**
 
 1. **Go to Resend Dashboard:** https://resend.com/domains
-2. **Add your domain:** `ventechgadgets.com`
+2. **Add your domain:** `hogtechgh.com`
 3. **Add DNS records** as instructed:
    - SPF record
    - DKIM record
@@ -46,8 +46,8 @@ RESEND_NOREPLY_EMAIL=VENTECH GADGETS <noreply@ventechgadgets.com>
 4. **Wait for verification** (usually a few minutes)
 
 ### After Verification:
-- ✅ `support@ventechgadgets.com` will work
-- ✅ `noreply@ventechgadgets.com` will work
+- ✅ `support@hogtechgh.com` will work
+- ✅ `noreply@hogtechgh.com` will work
 - ✅ Both emails can send from your custom domain
 
 ### Before Verification:
@@ -58,23 +58,23 @@ RESEND_NOREPLY_EMAIL=VENTECH GADGETS <noreply@ventechgadgets.com>
 
 To test before domain verification:
 ```env
-RESEND_SUPPORT_EMAIL=VENTECH GADGETS <onboarding@resend.dev>
-RESEND_NOREPLY_EMAIL=VENTECH GADGETS <onboarding@resend.dev>
+RESEND_SUPPORT_EMAIL=Hedgehog Technologies <onboarding@resend.dev>
+RESEND_NOREPLY_EMAIL=Hedgehog Technologies <onboarding@resend.dev>
 ```
 
 ## 📊 Email Usage Summary
 
 | Email Type | From Address | Can Reply? |
 |------------|--------------|------------|
-| Order Confirmation | support@ventechgadgets.com | ✅ Yes |
-| Order Status Update | support@ventechgadgets.com | ✅ Yes |
-| Order Cancellation | support@ventechgadgets.com | ✅ Yes |
-| Admin Notifications | support@ventechgadgets.com | ✅ Yes |
-| Contact Form | support@ventechgadgets.com | ✅ Yes |
-| Investment Request | support@ventechgadgets.com | ✅ Yes |
-| Wishlist Reminder | noreply@ventechgadgets.com | ❌ No |
-| Cart Abandonment | noreply@ventechgadgets.com | ❌ No |
-| Newsletter | noreply@ventechgadgets.com | ❌ No |
+| Order Confirmation | support@hogtechgh.com | ✅ Yes |
+| Order Status Update | support@hogtechgh.com | ✅ Yes |
+| Order Cancellation | support@hogtechgh.com | ✅ Yes |
+| Admin Notifications | support@hogtechgh.com | ✅ Yes |
+| Contact Form | support@hogtechgh.com | ✅ Yes |
+| Investment Request | support@hogtechgh.com | ✅ Yes |
+| Wishlist Reminder | noreply@hogtechgh.com | ❌ No |
+| Cart Abandonment | noreply@hogtechgh.com | ❌ No |
+| Newsletter | noreply@hogtechgh.com | ❌ No |
 
 ## 🔧 How It Works in Code
 
@@ -90,7 +90,7 @@ await sendEmail({...}, false); // false = noreply email
 ## 📚 Next Steps
 
 1. **Verify domain in Resend Dashboard**
-2. **Update DNS records** for `ventechgadgets.com`
+2. **Update DNS records** for `hogtechgh.com`
 3. **Wait for verification** (check Resend Dashboard)
 4. **Test sending emails** after verification
 5. **Monitor email delivery** in Resend Dashboard → Logs

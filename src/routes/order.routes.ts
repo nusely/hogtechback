@@ -51,6 +51,15 @@ router.patch(
   orderController.updateOrderStatus.bind(orderController)
 );
 
+// Update order details (shipping cost, notes, etc.)
+router.patch(
+  '/:id/details',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('orders:update-details'),
+  orderController.updateOrderDetails.bind(orderController)
+);
+
 // Update payment status
 router.patch(
   '/:id/payment-status',

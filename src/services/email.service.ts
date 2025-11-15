@@ -29,10 +29,10 @@ class EmailService {
     this.resend = new Resend(resendApiKey);
     
     // Support email for customer-facing emails
-    this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'VENTECH GADGETS <support@ventechgadgets.com>';
+    this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'Hedgehog Technologies <support@hogtechgh.com>';
     
     // No-reply email for automated notifications
-    this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'VENTECH GADGETS <noreply@ventechgadgets.com>';
+    this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'Hedgehog Technologies <noreply@hogtechgh.com>';
     
     console.log('✅ Resend email service initialized');
     console.log(`   Support Email: ${this.supportEmail}`);
@@ -175,11 +175,11 @@ class EmailService {
         <html>
         <head>
           <meta charset="UTF-8">
-          <title>New Investment Request - VENTECH</title>
+          <title>New Investment Request - Hogtech</title>
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #FF7A19;">New Investment Request - VENTECH Laptop Banking</h2>
+            <h2 style="color: #FF7A19;">New Investment Request - Hogtech Laptop Banking</h2>
             
             <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin-top: 0;">Investment Details</h3>
@@ -192,11 +192,11 @@ class EmailService {
               ${message ? `<p><strong>Message:</strong> ${message}</p>` : ''}
             </div>
             
-            <p>This investment request was submitted through the VENTECH website.</p>
+            <p>This investment request was submitted through the Hogtech website.</p>
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
-              <p>VENTECH Gadgets - Your Trusted Tech Partner</p>
-              <p>Email: ventechgadgets@gmail.com | Phone: +233 55 134 4310</p>
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 55 134 4310</p>
             </div>
           </div>
         </body>
@@ -205,7 +205,7 @@ class EmailService {
 
       // Use support email for investment requests (admin can reply)
       const success = await this.sendEmail({
-        to: 'ventechgadgets@gmail.com',
+        to: 'support@hogtechgh.com',
         subject: `New Investment Request - ${fullName}`,
         html: html,
       }, true); // true = use support email
@@ -227,7 +227,7 @@ class EmailService {
         <html>
         <head>
           <meta charset="UTF-8">
-          <title>New Contact Form Submission - VENTECH</title>
+          <title>New Contact Form Submission - Hogtech</title>
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
@@ -245,11 +245,11 @@ class EmailService {
               </div>
             </div>
             
-            <p>This message was submitted through the VENTECH contact form.</p>
+            <p>This message was submitted through the Hogtech contact form.</p>
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
-              <p>VENTECH Gadgets - Your Trusted Tech Partner</p>
-              <p>Email: ventechgadgets@gmail.com | Phone: +233 55 134 4310</p>
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 55 134 4310</p>
             </div>
           </div>
         </body>
@@ -258,7 +258,7 @@ class EmailService {
 
       // Use support email for contact form submissions (admin can reply)
       const success = await this.sendEmail({
-        to: 'ventechgadgets@gmail.com',
+        to: 'support@hogtechgh.com',
         subject: `Contact Form: ${subject} - ${name}`,
         html: html,
       }, true); // true = use support email

@@ -6,13 +6,13 @@ import { customerService } from '../services/customer.service';
 import { supabaseAdmin } from '../utils/supabaseClient';
 
 const resolveFallbackEmail = (): { primary: string; alias: string } => {
-  const fallback = process.env.ADMIN_FALLBACK_EMAIL || process.env.SUPPORT_EMAIL || 'support@ventechgadgets.com';
+  const fallback = process.env.ADMIN_FALLBACK_EMAIL || process.env.SUPPORT_EMAIL || 'support@hogtechgh.com';
   const [localPart, domain] = fallback.split('@');
 
   if (!localPart || !domain) {
     return {
-      primary: 'support@ventechgadgets.com',
-      alias: `support+${randomUUID().slice(0, 8)}@ventechgadgets.com`,
+      primary: 'support@hogtechgh.com',
+      alias: `support+${randomUUID().slice(0, 8)}@hogtechgh.com`,
     };
   }
 

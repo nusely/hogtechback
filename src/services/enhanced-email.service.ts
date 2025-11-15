@@ -48,10 +48,10 @@ class EnhancedEmailService {
     }
     
     // Support email for customer-facing emails (order confirmations, replies, etc.)
-    this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'VENTECH GADGETS <support@ventechgadgets.com>';
+    this.supportEmail = process.env.RESEND_SUPPORT_EMAIL || 'Hedgehog Technologies <support@hogtechgh.com>';
     
     // No-reply email for automated notifications (system updates, password resets, etc.)
-    this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'VENTECH GADGETS <noreply@ventechgadgets.com>';
+    this.noreplyEmail = process.env.RESEND_NOREPLY_EMAIL || 'Hedgehog Technologies <noreply@hogtechgh.com>';
     
     console.log(`   Support Email: ${this.supportEmail}`);
     console.log(`   No-Reply Email: ${this.noreplyEmail}`);
@@ -213,7 +213,7 @@ class EnhancedEmailService {
           : '2-3 business days';
       
       // Generate tracking URL
-      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://ventechgadgets.com';
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://hogtechgh.com';
       const normalizedFrontendUrl = frontendUrl.replace(/\/$/, '');
       const trackingUrl = `${normalizedFrontendUrl}/track-order?order=${encodeURIComponent(orderData.order_number || '')}`;
       const contactUrl = `${normalizedFrontendUrl}/contact`;
@@ -238,7 +238,7 @@ class EnhancedEmailService {
         .replace(/{{TRACKING_URL}}/g, trackingUrl)
         .replace(/{{CONTACT_URL}}/g, contactUrl)
         .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '')
-        .replace(/{{LOGO_URL}}/g, 'https://files.ventechgadgets.com/ventech_logo_1.webp');
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
 
       // Verify placeholder replacement
       const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
@@ -355,7 +355,7 @@ class EnhancedEmailService {
       const statusDisplay = newStatus.charAt(0).toUpperCase() + newStatus.slice(1);
       
       // Generate public tracking URL (works for guest customers using order number)
-      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://ventechgadgets.com';
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://hogtechgh.com';
       const normalizedFrontendUrl = frontendUrl.replace(/\/$/, '');
       const trackingUrl = `${normalizedFrontendUrl}/track-order?order=${encodeURIComponent(orderData.order_number || '')}`;
       const contactUrl = `${normalizedFrontendUrl}/contact`;
@@ -381,7 +381,7 @@ class EnhancedEmailService {
         .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || orderData.order_items || []))
         .replace(/{{TRACKING_URL}}/g, trackingUrl)
         .replace(/{{CONTACT_URL}}/g, contactUrl)
-        .replace(/{{LOGO_URL}}/g, 'https://files.ventechgadgets.com/ventech_logo_1.webp');
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
 
       // Verify placeholder replacement
       const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
@@ -435,6 +435,113 @@ class EnhancedEmailService {
     }
   }
 
+  // Send order update email (for shipping cost changes, notes, etc.)
+  async sendOrderUpdate(
+    orderData: any,
+    updateInfo: {
+      shipping_fee_changed?: boolean;
+      notes_added?: boolean;
+      old_shipping_fee?: number;
+      new_shipping_fee?: number;
+      notes?: string | null;
+    }
+  ): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
+    try {
+      console.log('📧 sendOrderUpdate called:', {
+        order_number: orderData.order_number,
+        customer_email: orderData.customer_email,
+        user_id: orderData.user_id,
+        shipping_fee_changed: updateInfo.shipping_fee_changed,
+        notes_added: updateInfo.notes_added,
+      });
+
+      // Always send order update emails (critical transactional emails)
+      if (orderData.user_id) {
+        try {
+          const shouldSend = await this.shouldSendEmail(orderData.user_id, 'transactional');
+          if (!shouldSend) {
+            console.log(`⚠️ Skipping order update email for user ${orderData.user_id} - email notifications disabled`);
+            return { success: true, skipped: true, reason: 'User has disabled email notifications' };
+          }
+        } catch (prefError: any) {
+          console.error('❌ Error checking user preferences (sending email anyway):', prefError?.message || prefError);
+        }
+      }
+
+      const templatePath = resolveTemplatePath('order-status-update.html');
+      let template = fs.readFileSync(templatePath, 'utf8');
+
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://hogtechgh.com';
+      const normalizedFrontendUrl = frontendUrl.replace(/\/$/, '');
+      const trackingUrl = `${normalizedFrontendUrl}/track-order?order=${encodeURIComponent(orderData.order_number || '')}`;
+      const contactUrl = `${normalizedFrontendUrl}/contact`;
+
+      const customerName =
+        orderData.customer_name ||
+        (orderData.user?.first_name && orderData.user?.last_name
+          ? `${orderData.user.first_name} ${orderData.user.last_name}`.trim()
+          : orderData.user?.first_name ||
+            orderData.user?.full_name ||
+            orderData.shipping_address?.full_name ||
+            orderData.delivery_address?.full_name ||
+            'Customer');
+
+      // Build update message
+      let updateMessage = 'Your order details have been updated.';
+      const updateDetails: string[] = [];
+
+      if (updateInfo.shipping_fee_changed && updateInfo.old_shipping_fee !== undefined && updateInfo.new_shipping_fee !== undefined) {
+        const feeChange = updateInfo.new_shipping_fee - updateInfo.old_shipping_fee;
+        if (feeChange > 0) {
+          updateDetails.push(`Shipping fee increased from GHS ${updateInfo.old_shipping_fee.toFixed(2)} to GHS ${updateInfo.new_shipping_fee.toFixed(2)} (+GHS ${feeChange.toFixed(2)})`);
+        } else if (feeChange < 0) {
+          updateDetails.push(`Shipping fee reduced from GHS ${updateInfo.old_shipping_fee.toFixed(2)} to GHS ${updateInfo.new_shipping_fee.toFixed(2)} (GHS ${Math.abs(feeChange).toFixed(2)} refund)`);
+        }
+      }
+
+      if (updateInfo.notes_added && updateInfo.notes) {
+        updateDetails.push(`Admin note: ${updateInfo.notes}`);
+      }
+
+      if (updateDetails.length > 0) {
+        updateMessage = `Your order details have been updated:\n\n${updateDetails.join('\n\n')}`;
+      }
+
+      template = template
+        .replace(/{{ORDER_NUMBER}}/g, orderData.order_number || '')
+        .replace(/{{CUSTOMER_NAME}}/g, customerName)
+        .replace(/{{NEW_STATUS}}/g, orderData.status ? orderData.status.charAt(0).toUpperCase() + orderData.status.slice(1) : 'Updated')
+        .replace(/{{STATUS_MESSAGE}}/g, updateMessage)
+        .replace(/{{TRACKING_NUMBER}}/g, orderData.tracking_number || 'Not available yet')
+        .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at || new Date()).toLocaleDateString())
+        .replace(/{{TOTAL_AMOUNT}}/g, `GHS ${orderData.total?.toFixed(2) || '0.00'}`)
+        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || orderData.order_items || []))
+        .replace(/{{TRACKING_URL}}/g, trackingUrl)
+        .replace(/{{CONTACT_URL}}/g, contactUrl)
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
+
+      if (!orderData.customer_email) {
+        console.error('❌ No customer email provided for order update:', orderData.order_number);
+        return { success: false, reason: 'No customer email provided' };
+      }
+
+      console.log(`📧 Sending order update email to: ${orderData.customer_email}`);
+      const success = await this.sendEmail(
+        {
+          to: orderData.customer_email,
+          subject: `Order Update - ${orderData.order_number}`,
+          html: template,
+        },
+        true // use support email
+      );
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending order update:', error);
+      return { success: false, reason: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
   async sendOrderCancellation(orderData: any): Promise<{ success: boolean; skipped?: boolean; reason?: string }> {
     try {
       console.log('📧 sendOrderCancellation called:', {
@@ -459,7 +566,7 @@ class EnhancedEmailService {
       const templatePath = resolveTemplatePath('order-cancellation.html');
       let template = fs.readFileSync(templatePath, 'utf8');
 
-      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://ventechgadgets.com';
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://hogtechgh.com';
       const normalizedFrontendUrl = frontendUrl.replace(/\/$/, '');
       const trackingUrl = `${normalizedFrontendUrl}/track-order?order=${encodeURIComponent(orderData.order_number || '')}`;
 
@@ -621,7 +728,7 @@ class EnhancedEmailService {
   }
 
   private normalizeImageUrl(imageUrl?: string | null): string {
-    const placeholder = `${process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.ventechgadgets.com'}/placeholder-product.webp`;
+    const placeholder = `${process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.hogtechgh.com'}/placeholder-product.webp`;
     if (!imageUrl || typeof imageUrl !== 'string') {
       return placeholder;
     }
@@ -638,11 +745,11 @@ class EnhancedEmailService {
     const frontendBase =
       process.env.FRONTEND_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
-      'https://ventechgadgets.com';
+      'https://hogtechgh.com';
     const normalizedFrontendBase = frontendBase.replace(/\/$/, '');
     const r2Base = process.env.R2_PUBLIC_URL
       ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
-      : 'https://files.ventechgadgets.com';
+      : 'https://files.hogtechgh.com';
 
     try {
       const parsed = new URL(url);
@@ -731,9 +838,9 @@ class EnhancedEmailService {
         .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '');
 
       // Use support email for admin notifications (they can reply)
-      // Send to ventechgadgets@gmail.com
+      // Send to support@hogtechgh.com
       const success = await this.sendEmail({
-        to: 'ventechgadgets@gmail.com',
+        to: 'support@hogtechgh.com',
         subject: `New Order Received - ${orderData.order_number}`,
         html: template,
       }, true); // true = use support email
@@ -906,7 +1013,7 @@ class EnhancedEmailService {
       // Use noreply for verification emails (automated, no reply needed)
       const success = await this.sendEmail({
         to: email,
-        subject: 'Verify Your Email - VENTECH',
+        subject: 'Verify Your Email - Hogtech',
         html: template,
       }, false); // false = use noreply email
 
@@ -960,7 +1067,7 @@ class EnhancedEmailService {
       // Use noreply for password reset emails (automated, no reply needed)
       const success = await this.sendEmail({
         to: email,
-        subject: 'Reset Your Password - VENTECH',
+        subject: 'Reset Your Password - Hogtech',
         html: template,
       }, false); // false = use noreply email
 
@@ -987,11 +1094,11 @@ class EnhancedEmailService {
         <html>
         <head>
           <meta charset="UTF-8">
-          <title>New Investment Request - VENTECH</title>
+          <title>New Investment Request - Hogtech</title>
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
           <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #FF7A19;">New Investment Request - VENTECH Laptop Banking</h2>
+            <h2 style="color: #FF7A19;">New Investment Request - Hogtech Laptop Banking</h2>
             
             <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
               <h3 style="margin-top: 0;">Investment Details</h3>
@@ -1004,11 +1111,11 @@ class EnhancedEmailService {
               ${message ? `<p><strong>Message:</strong> ${message}</p>` : ''}
             </div>
             
-            <p>This investment request was submitted through the VENTECH website.</p>
+            <p>This investment request was submitted through the Hogtech website.</p>
             
             <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666;">
-              <p>VENTECH Gadgets - Your Trusted Tech Partner</p>
-              <p>Email: ventechgadgets@gmail.com | Phone: +233 55 134 4310</p>
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 55 134 4310</p>
             </div>
           </div>
         </body>
@@ -1017,7 +1124,7 @@ class EnhancedEmailService {
 
       // Use support email for investment requests (admin can reply)
       const success = await this.sendEmail({
-        to: 'ventechgadgets@gmail.com',
+        to: 'support@hogtechgh.com',
         subject: `New Investment Request - ${fullName}`,
         html: html,
       }, true); // true = use support email

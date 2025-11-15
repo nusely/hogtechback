@@ -1,6 +1,6 @@
-# 🚀 Render Deployment Guide for VENTECH Backend
+# 🚀 Render Deployment Guide for Hogtech Backend
 
-This guide will help you deploy your VENTECH backend API to Render.
+This guide will help you deploy your Hogtech backend API to Render.
 
 ## Prerequisites
 
@@ -48,7 +48,7 @@ This guide will help you deploy your VENTECH backend API to Render.
    - Choose the repository and branch
 
 3. **Configure the Service**
-   - **Name**: `ventech-backend` (or your preferred name)
+   - **Name**: `hogtech-backend` (or your preferred name)
    - **Region**: Choose closest to your users (e.g., Oregon)
    - **Branch**: `main`
    - **Root Directory**: `backend` (if your backend is in a subfolder) or leave blank
@@ -85,21 +85,21 @@ SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
 JWT_SECRET=your_jwt_secret
 
 # Email Configuration
-EMAIL_USER=ventechgadgets@gmail.com
+EMAIL_USER=support@hogtechgh.com
 EMAIL_PASSWORD=your_email_password
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=465
 SMTP_SECURE=true
-SMTP_USER=ventechgadgets@gmail.com
+SMTP_USER=support@hogtechgh.com
 SMTP_PASS=your_smtp_password
-SMTP_FROM="VENTECH <ventechgadgets@gmail.com>"
+SMTP_FROM="Hedgehog Technologies <support@hogtechgh.com>"
 
 # Cloudflare R2 Storage
 R2_ACCOUNT_ID=your_r2_account_id
 R2_ACCESS_KEY_ID=your_r2_access_key_id
 R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
-R2_BUCKET_NAME=ventech-images
-R2_PUBLIC_URL=https://files.ventechgadgets.com
+R2_BUCKET_NAME=hogtech-assets
+R2_PUBLIC_URL=https://files.hogtechgh.com
 
 # Payment Gateway
 PAYSTACK_SECRET_KEY=your_paystack_secret_key
@@ -132,19 +132,19 @@ PAYSTACK_PUBLIC_KEY=your_paystack_public_key
 After deploying to Render, update your frontend environment variables:
 
 ```env
-NEXT_PUBLIC_API_URL=https://ventech-backend.onrender.com
+NEXT_PUBLIC_API_URL=https://hogtech-backend.onrender.com
 ```
 
 Or if you set up a custom domain:
 
 ```env
-NEXT_PUBLIC_API_URL=https://api.ventechgadgets.com
+NEXT_PUBLIC_API_URL=https://api.hogtechgh.com
 ```
 
 ## Custom Domain (Optional)
 
 1. Go to your service → Settings → Custom Domain
-2. Add your domain (e.g., `api.ventechgadgets.com`)
+2. Add your domain (e.g., `api.hogtechgh.com`)
 3. Update DNS records as instructed by Render
 4. Update `FRONTEND_URL` and `NEXT_PUBLIC_API_URL` accordingly
 
