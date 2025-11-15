@@ -13,15 +13,16 @@ import {
   getFlashDealProducts,
 } from '../controllers/deal.controller';
 import { authenticate, isAdmin } from '../middleware/auth.middleware';
+import { publicApiRateLimiter } from '../middleware/rateLimit.middleware';
 
 const router = Router();
 
-// Public routes
-router.get('/', getAllDeals); // Get all active deals
-router.get('/active/products', getActiveDealProducts); // Get all products in active deals (for deals page)
-router.get('/flash/products', getFlashDealProducts); // Get flash deal products (for homepage)
-router.get('/:id', getDealById); // Get a single deal
-router.get('/:dealId/products', getDealProducts); // Get products for a specific deal
+// Public routes with rate limiting
+router.get('/', publicApiRateLimiter, getAllDeals); // Get all active deals
+router.get('/active/products', publicApiRateLimiter, getActiveDealProducts); // Get all products in active deals (for deals page)
+router.get('/flash/products', publicApiRateLimiter, getFlashDealProducts); // Get flash deal products (for homepage)
+router.get('/:id', publicApiRateLimiter, getDealById); // Get a single deal
+router.get('/:dealId/products', publicApiRateLimiter, getDealProducts); // Get products for a specific deal
 
 // Admin routes (require authentication and admin role)
 router.post('/', authenticate, isAdmin, createDeal);

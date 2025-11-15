@@ -12,13 +12,14 @@ import {
 import { updateOptionPrice, deleteOption, deleteAttribute } from '../controllers/productVariant.controller';
 import { authenticate, isAdmin } from '../middleware/auth.middleware';
 import { adminAuditLogger } from '../middleware/audit.middleware';
+import { publicApiRateLimiter } from '../middleware/rateLimit.middleware';
 
 const router = Router();
 
-// Public routes
-router.get('/', getAllProducts);
-router.get('/featured', getFeaturedProducts);
-router.get('/categories', getAllCategories);
+// Public routes with rate limiting
+router.get('/', publicApiRateLimiter, getAllProducts);
+router.get('/featured', publicApiRateLimiter, getFeaturedProducts);
+router.get('/categories', publicApiRateLimiter, getAllCategories);
 
 // Admin helper routes
 router.get('/low-stock', authenticate, isAdmin, getLowStockProducts);
@@ -47,7 +48,7 @@ router.delete(
   deleteAttribute
 );
 
-router.get('/:slug', getProductBySlug);
+router.get('/:slug', publicApiRateLimiter, getProductBySlug);
 
 // Admin routes
 router.post('/', authenticate, isAdmin, createProduct);

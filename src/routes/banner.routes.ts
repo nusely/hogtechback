@@ -7,6 +7,7 @@ import {
   deleteBanner,
 } from '../controllers/banner.controller';
 import { authenticate, isAdmin } from '../middleware/auth.middleware';
+import { publicApiRateLimiter } from '../middleware/rateLimit.middleware';
 
 const router = Router();
 
@@ -16,8 +17,8 @@ router.post('/', authenticate, isAdmin, createBanner);
 router.put('/:id', authenticate, isAdmin, updateBanner);
 router.delete('/:id', authenticate, isAdmin, deleteBanner);
 
-// Public routes (must come after specific routes)
-router.get('/:type', getBannersByType);
+// Public routes (must come after specific routes) with rate limiting
+router.get('/:type', publicApiRateLimiter, getBannersByType);
 
 export default router;
 
