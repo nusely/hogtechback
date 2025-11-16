@@ -231,15 +231,21 @@ export const listR2Files = async (
         
         if (PUBLIC_URL && !PUBLIC_URL.includes('.r2.cloudflarestorage.com')) {
           if (PUBLIC_URL.includes('.r2.dev')) {
+            // R2.dev format: https://[account-id].r2.dev/[bucket]/[key]
             const baseUrl = PUBLIC_URL.endsWith('/') ? PUBLIC_URL.slice(0, -1) : PUBLIC_URL;
             publicUrl = `${baseUrl}/${BUCKET_NAME}/${item.Key}`;
           } else {
+            // Custom domain format: https://files.hogtechgh.com/[key]
+            // Note: Custom domains don't include bucket name in path
             const baseUrl = PUBLIC_URL.endsWith('/') ? PUBLIC_URL.slice(0, -1) : PUBLIC_URL;
             publicUrl = `${baseUrl}/${item.Key}`;
           }
         } else {
+          // Fallback to R2.dev format
           publicUrl = `https://${accountId}.r2.dev/${BUCKET_NAME}/${item.Key}`;
         }
+
+        console.log(`Generated URL for ${item.Key}: ${publicUrl}`);
 
         return {
           key: item.Key!,
