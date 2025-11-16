@@ -57,6 +57,16 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
   : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
+// Log allowed origins on startup (helpful for debugging)
+if (process.env.NODE_ENV === 'production') {
+  console.log('🔒 CORS Configuration:');
+  console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+  if (!process.env.FRONTEND_URL) {
+    console.warn('⚠️  WARNING: FRONTEND_URL not set! Using default localhost origins.');
+    console.warn('   Set FRONTEND_URL in Render.com environment variables to allow production frontend.');
+  }
+}
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -69,15 +79,20 @@ app.use(cors({
     }
     
     if (allowedOrigins.indexOf(origin) !== -1) {
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`✅ CORS: Allowing request from origin: ${origin}`);
+      }
       callback(null, true);
     } else {
       // In production, reject unknown origins
       if (process.env.NODE_ENV === 'production') {
-        console.warn(`CORS: Blocked request from origin: ${origin}`);
-        return callback(new Error('CORS: Origin not allowed'));
+        console.error(`❌ CORS: Blocked request from origin: ${origin}`);
+        console.error(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+        console.error(`   💡 Tip: Add ${origin} to FRONTEND_URL environment variable in Render.com`);
+        return callback(new Error(`CORS: Origin ${origin} not allowed. Add it to FRONTEND_URL env var.`));
       }
       // In development, allow but log
-      console.warn(`CORS: Allowing unknown origin in development: ${origin}`);
+      console.warn(`⚠️  CORS: Allowing unknown origin in development: ${origin}`);
       callback(null, true);
     }
   },
