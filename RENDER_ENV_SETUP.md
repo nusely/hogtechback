@@ -25,8 +25,8 @@ Add these environment variables:
 #### **Required Variables:**
 
 ```env
-# Frontend URL (for CORS) - Add BOTH production and development URLs
-FRONTEND_URL=https://hogtechfront.vercel.app,http://localhost:3000
+# Frontend URL (for CORS) - Add production custom domain, Vercel fallback, and development
+FRONTEND_URL=https://hogtechgh.com,https://hogtechfront.vercel.app,http://localhost:3000
 
 # Node Environment
 NODE_ENV=production
@@ -72,20 +72,18 @@ RECAPTCHA_SECRET=your-recaptcha-secret
 
 ### Step 3: Important - FRONTEND_URL Format
 
-**⚠️ CRITICAL:** The `FRONTEND_URL` must include **BOTH** production and development URLs, separated by commas:
+**⚠️ CRITICAL:** The `FRONTEND_URL` must include **ALL** frontend URLs, separated by commas:
 
 ```
-FRONTEND_URL=https://hogtechfront.vercel.app,http://localhost:3000
+FRONTEND_URL=https://hogtechgh.com,https://hogtechfront.vercel.app,http://localhost:3000
 ```
 
 This allows:
-- ✅ Production Vercel site to access the backend
+- ✅ Production custom domain (`hogtechgh.com`) to access the backend
+- ✅ Production Vercel site (fallback) to access the backend
 - ✅ Local development to work
 
-**If you have a custom domain**, add it too:
-```
-FRONTEND_URL=https://hogtechfront.vercel.app,https://yourdomain.com,http://localhost:3000
-```
+**Order matters:** Put your primary custom domain first, then Vercel URL, then localhost.
 
 ### Step 4: Redeploy
 
@@ -122,7 +120,7 @@ After redeploying, test the backend:
 Replace with your actual values:
 
 ```env
-FRONTEND_URL=https://hogtechfront.vercel.app,http://localhost:3000
+FRONTEND_URL=https://hogtechgh.com,https://hogtechfront.vercel.app,http://localhost:3000
 NODE_ENV=production
 PORT=5000
 SUPABASE_URL=https://hrmxchfwiozifgpmjemf.supabase.co
