@@ -57,10 +57,28 @@ const allowedOrigins = process.env.FRONTEND_URL
   ? process.env.FRONTEND_URL.split(',').map(url => url.trim())
   : ['http://localhost:3000', 'http://127.0.0.1:3000'];
 
+// Normalize origins - handle www and non-www variants
+// If hogtechgh.com is in the list, also add www.hogtechgh.com automatically
+const normalizedOrigins = [...allowedOrigins];
+allowedOrigins.forEach(origin => {
+  if (origin.includes('hogtechgh.com') && !origin.includes('www.')) {
+    const wwwVariant = origin.replace('hogtechgh.com', 'www.hogtechgh.com');
+    if (!normalizedOrigins.includes(wwwVariant)) {
+      normalizedOrigins.push(wwwVariant);
+    }
+  }
+  if (origin.includes('www.hogtechgh.com')) {
+    const nonWwwVariant = origin.replace('www.hogtechgh.com', 'hogtechgh.com');
+    if (!normalizedOrigins.includes(nonWwwVariant)) {
+      normalizedOrigins.push(nonWwwVariant);
+    }
+  }
+});
+
 // Log allowed origins on startup (helpful for debugging)
 if (process.env.NODE_ENV === 'production') {
   console.log('🔒 CORS Configuration:');
-  console.log(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`   Allowed origins: ${normalizedOrigins.join(', ')}`);
   if (!process.env.FRONTEND_URL) {
     console.warn('⚠️  WARNING: FRONTEND_URL not set! Using default localhost origins.');
     console.warn('   Set FRONTEND_URL in Render.com environment variables to allow production frontend.');
@@ -78,7 +96,7 @@ app.use(cors({
       return callback(new Error('CORS: Origin header required'));
     }
     
-    if (allowedOrigins.indexOf(origin) !== -1) {
+    if (normalizedOrigins.indexOf(origin) !== -1) {
       if (process.env.NODE_ENV === 'production') {
         console.log(`✅ CORS: Allowing request from origin: ${origin}`);
       }
@@ -87,7 +105,7 @@ app.use(cors({
       // In production, reject unknown origins
       if (process.env.NODE_ENV === 'production') {
         console.error(`❌ CORS: Blocked request from origin: ${origin}`);
-        console.error(`   Allowed origins: ${allowedOrigins.join(', ')}`);
+        console.error(`   Allowed origins: ${normalizedOrigins.join(', ')}`);
         console.error(`   💡 Tip: Add ${origin} to FRONTEND_URL environment variable in Render.com`);
         return callback(new Error(`CORS: Origin ${origin} not allowed. Add it to FRONTEND_URL env var.`));
       }
