@@ -21,7 +21,7 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .header {
-            background: linear-gradient(135deg, #FF7A19, #FF9A19);
+            background: linear-gradient(135deg, #00afef, #163b86);
             color: white;
             padding: 30px;
             text-align: center;
@@ -36,7 +36,7 @@
         }
         .status-badge {
             display: inline-block;
-            background-color: #FF7A19;
+            background-color: #00afef;
             color: white;
             padding: 8px 16px;
             border-radius: 20px;
@@ -80,7 +80,7 @@
         }
         .cta-button {
             display: inline-block;
-            background-color: #FF7A19;
+            background-color: #00afef;
             color: white;
             padding: 12px 30px;
             text-decoration: none;
@@ -90,7 +90,7 @@
             transition: background-color 0.3s;
         }
         .cta-button:hover {
-            background-color: #E66600;
+            background-color: #0099d6;
         }
         .footer {
             background-color: #1A1A1A;
@@ -100,7 +100,7 @@
             font-size: 14px;
         }
         .footer a {
-            color: #FF7A19;
+            color: #00afef;
             text-decoration: none;
         }
         .tracking-info {
@@ -119,6 +119,7 @@
 <body>
     <div class="container">
         <div class="header">
+            <img src="https://files.hogtechgh.com/IMG_0718.PNG" alt="Hogtech" style="height: 50px; margin-bottom: 15px;" />
             <h1>HOGTECH</h1>
             <p>Your Order Status Has Been Updated</p>
         </div>
@@ -151,10 +152,22 @@
             </div>
             
             <!-- Order Items -->
-            {{ORDER_ITEMS}}
+            <div class="order-info" style="margin-top: 20px;">
+                <h3>Order Items</h3>
+                <div style="border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; margin-top: 15px;">
+                    {{ORDER_ITEMS}}
+                    
+                    <!-- Price Breakdown -->
+                    <div style="background-color: #f9f9f9; padding: 20px; border-top: 2px solid #e0e0e0;">
+                        <table role="presentation" style="width: 100%;">
+                            {{PRICE_BREAKDOWN}}
+                        </table>
+                    </div>
+                </div>
+            </div>
             
             <div class="tracking-info">
-                <h4>📦 Track Your Order</h4>
+                <h4>Track Your Order</h4>
                 <p>You can track your order status anytime by visiting our website and entering your order number.</p>
             </div>
             
@@ -174,7 +187,8 @@
                 <a href="https://hogtechgh.com">www.hogtechgh.com</a> | 
                 <a href="mailto:support@hogtechgh.com">support@hogtechgh.com</a>
             </p>
-            <p>Phone: +233 55 134 4310</p>
+            <p>Phone: +233 553 886 5804</p>
+            <p>Address: Z236 Weija-Oblogo Rd, Greater Accra</p>
         </div>
     </div>
 </body>

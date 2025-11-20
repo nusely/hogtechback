@@ -189,6 +189,14 @@ class EnhancedEmailService {
       console.log('✅ Email template found at:', templatePath);
       let template = fs.readFileSync(templatePath, 'utf8');
 
+      // Fetch product images for order items - always enrich to ensure we have latest images
+      let orderItems = orderData.items || [];
+      console.log('📧 Order confirmation - items before enrichment:', orderItems.length);
+      if (orderItems.length > 0) {
+        orderItems = await this.enrichOrderItemsWithImages(orderItems);
+        console.log('📧 Order confirmation - items after enrichment:', orderItems.length);
+      }
+
       // Calculate values for email
       const subtotal = orderData.subtotal || orderData.total || 0;
       const shippingFee = orderData.shipping_fee || orderData.delivery_fee || 0;
@@ -204,6 +212,18 @@ class EnhancedEmailService {
       
       // Format payment status for display
       const paymentStatusDisplay = paymentStatus.charAt(0).toUpperCase() + paymentStatus.slice(1);
+
+      // Generate price breakdown
+      const discountAmount = orderData.discount || 0;
+      const taxAmount = orderData.tax || 0;
+      const priceBreakdownHtml = this.generatePriceBreakdownHtml({
+        subtotal,
+        discount: discountAmount,
+        discountCode: orderData.discount_code || null,
+        tax: taxAmount,
+        shipping: shippingFee,
+        total,
+      });
       
       // Get estimated delivery from delivery_option
       const estimatedDelivery = orderData.delivery_address?.delivery_option?.estimated_days 
@@ -224,11 +244,12 @@ class EnhancedEmailService {
         .replace(/{{CUSTOMER_NAME}}/g, orderData.customer_name || 'Customer')
         .replace(/{{CUSTOMER_EMAIL}}/g, orderData.customer_email || '')
         .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at || new Date()).toLocaleDateString())
-        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || []))
-        .replace(/{{ITEMS_LIST}}/g, this.formatOrderItemsForEmail(orderData.items || [])) // Also support old placeholder
+        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderItems))
+        .replace(/{{ITEMS_LIST}}/g, this.formatOrderItemsForEmail(orderItems)) // Also support old placeholder
         .replace(/{{SUBTOTAL}}/g, subtotal.toFixed(2))
         .replace(/{{SHIPPING}}/g, shippingFee.toFixed(2))
         .replace(/{{TOTAL}}/g, total.toFixed(2))
+        .replace(/{{PRICE_BREAKDOWN}}/g, priceBreakdownHtml)
         .replace(/{{TOTAL_AMOUNT}}/g, total.toFixed(2)) // Also support old placeholder
         .replace(/{{SHIPPING_ADDRESS}}/g, this.formatAddress(orderData.delivery_address || orderData.shipping_address))
         .replace(/{{DELIVERY_ADDRESS}}/g, this.formatAddress(orderData.delivery_address || orderData.shipping_address)) // Also support old placeholder
@@ -238,7 +259,7 @@ class EnhancedEmailService {
         .replace(/{{TRACKING_URL}}/g, trackingUrl)
         .replace(/{{CONTACT_URL}}/g, contactUrl)
         .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '')
-        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/IMG_0718.PNG');
 
       // Verify placeholder replacement
       const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
@@ -370,6 +391,29 @@ class EnhancedEmailService {
                               orderData.delivery_address?.full_name ||
                               'Customer');
       
+      // Fetch product images for order items if they don't have images
+      let orderItems = orderData.items || orderData.order_items || [];
+      if (orderItems.length > 0) {
+        orderItems = await this.enrichOrderItemsWithImages(orderItems);
+      }
+      
+      // Calculate price breakdown for updated order
+      const subtotal = orderData.subtotal || 0;
+      const discountAmount = orderData.discount || 0;
+      const taxAmount = orderData.tax || 0;
+      const shippingFee = orderData.shipping_fee || orderData.delivery_fee || 0;
+      const total = orderData.total || 0;
+      
+      // Generate price breakdown HTML
+      const priceBreakdownHtml = this.generatePriceBreakdownHtml({
+        subtotal,
+        discount: discountAmount,
+        discountCode: orderData.discount_code || null,
+        tax: taxAmount,
+        shipping: shippingFee,
+        total,
+      });
+      
       template = template
         .replace(/{{ORDER_NUMBER}}/g, orderData.order_number || '')
         .replace(/{{CUSTOMER_NAME}}/g, customerName)
@@ -377,11 +421,12 @@ class EnhancedEmailService {
         .replace(/{{STATUS_MESSAGE}}/g, statusMessage)
         .replace(/{{TRACKING_NUMBER}}/g, trackingNumber)
         .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at || new Date()).toLocaleDateString())
-        .replace(/{{TOTAL_AMOUNT}}/g, `GHS ${orderData.total?.toFixed(2) || '0.00'}`)
-        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || orderData.order_items || []))
+        .replace(/{{TOTAL_AMOUNT}}/g, `GHS ${total.toFixed(2)}`)
+        .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderItems))
+        .replace(/{{PRICE_BREAKDOWN}}/g, priceBreakdownHtml)
         .replace(/{{TRACKING_URL}}/g, trackingUrl)
         .replace(/{{CONTACT_URL}}/g, contactUrl)
-        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/IMG_0718.PNG');
 
       // Verify placeholder replacement
       const remainingPlaceholders = template.match(/\{\{([^}]+)\}\}/g);
@@ -518,7 +563,7 @@ class EnhancedEmailService {
         .replace(/{{ORDER_ITEMS}}/g, this.formatOrderItemsForEmail(orderData.items || orderData.order_items || []))
         .replace(/{{TRACKING_URL}}/g, trackingUrl)
         .replace(/{{CONTACT_URL}}/g, contactUrl)
-        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/hogtech_logo_primary.webp');
+        .replace(/{{LOGO_URL}}/g, 'https://files.hogtechgh.com/IMG_0718.PNG');
 
       if (!orderData.customer_email) {
         console.error('❌ No customer email provided for order update:', orderData.order_number);
@@ -705,21 +750,48 @@ class EnhancedEmailService {
       const quantity = item.quantity || 0;
       const unitPrice = item.unit_price || item.price || 0;
       const subtotal = item.total_price || item.subtotal || (unitPrice * quantity);
-      const productImage = this.normalizeImageUrl(item.product_image || item.image || null);
-      const variantInfo = item.selected_variants 
-        ? Object.entries(item.selected_variants).map(([key, value]: [string, any]) => `${key}: ${value}`).join(', ')
+      
+      // Try multiple image sources and normalize
+      let productImage = this.normalizeImageUrl(
+        item.product_image || 
+        item.image || 
+        item.thumbnail || 
+        (item.deal_snapshot && item.deal_snapshot.image) ||
+        null
+      );
+      
+      // Ensure we always have an image (use reliable placeholder service)
+      const placeholder = 'https://placehold.co/400x400/00afef/white?text=Product+Image';
+      if (!productImage || productImage.includes('placeholder')) {
+        productImage = placeholder;
+      }
+      
+      // Log for debugging
+      console.log(`📧 Email item image for ${productName}:`, {
+        product_id: item.product_id,
+        product_image: item.product_image,
+        image: item.image,
+        thumbnail: item.thumbnail,
+        normalized: productImage,
+        isPlaceholder: productImage === placeholder,
+      });
+      
+      const variantInfo = item.variant_options || item.selected_variants
+        ? Object.entries(item.variant_options || item.selected_variants || {}).map(([key, value]: [string, any]) => `${key}: ${value}`).join(', ')
         : '';
       
       return `
-        <div style="padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: center;">
-          <img src="${productImage}" alt="${productName}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; margin-right: 15px;">
-          <div style="flex: 1;">
-            <h3 style="margin: 0 0 5px 0; color: #1A1A1A; font-size: 16px;">${productName}</h3>
+        <div style="padding: 15px; border-bottom: 1px solid #e0e0e0; display: flex; align-items: flex-start; gap: 15px;">
+          <div style="flex-shrink: 0;">
+            <img src="${productImage}" alt="${productName}" style="width: 80px; height: 80px; object-fit: cover; border-radius: 4px; display: block; border: 1px solid #e0e0e0;" />
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <h3 style="margin: 0 0 5px 0; color: #1A1A1A; font-size: 16px; font-weight: 600; line-height: 1.3;">${productName}</h3>
             <p style="margin: 0; color: #3A3A3A; font-size: 14px;">Qty: ${quantity}</p>
             ${variantInfo ? `<p style="margin: 5px 0 0 0; color: #3A3A3A; font-size: 12px;">${variantInfo}</p>` : ''}
           </div>
-          <div style="text-align: right;">
-            <p style="margin: 0; color: #FF7A19; font-size: 16px; font-weight: bold;">GHC ${subtotal.toFixed(2)}</p>
+          <div style="text-align: right; flex-shrink: 0;">
+            <p style="margin: 0; color: #00afef; font-size: 16px; font-weight: bold;">GHC ${subtotal.toFixed(2)}</p>
             <p style="margin: 5px 0 0 0; color: #3A3A3A; font-size: 12px;">GHC ${unitPrice.toFixed(2)} each</p>
           </div>
         </div>
@@ -727,18 +799,241 @@ class EnhancedEmailService {
     }).join('');
   }
 
+  // Format items as table rows for admin notification
+  private formatOrderItemsAsTableRows(items: any[]): string {
+    if (!items || items.length === 0) {
+      return `
+        <tr>
+          <td colspan="4" style="padding: 16px; text-align: center; color: #6b7280;">No items in order</td>
+        </tr>
+      `;
+    }
+    
+    return items.map(item => {
+      const productName = item.product_name || 'Product';
+      const quantity = item.quantity || 0;
+      const unitPrice = item.unit_price || item.price || 0;
+      const subtotal = item.total_price || item.subtotal || (unitPrice * quantity);
+      
+      // Try multiple image sources and normalize
+      let productImage = this.normalizeImageUrl(
+        item.product_image || 
+        item.image || 
+        item.thumbnail || 
+        (item.deal_snapshot && item.deal_snapshot.image) ||
+        null
+      );
+      
+      // Ensure we always have an image (use reliable placeholder service)
+      const placeholder = 'https://placehold.co/400x400/00afef/white?text=Product+Image';
+      if (!productImage || productImage.includes('placeholder')) {
+        productImage = placeholder;
+      }
+      
+      const variantInfo = item.variant_options || item.selected_variants
+        ? Object.entries(item.variant_options || item.selected_variants || {}).map(([key, value]: [string, any]) => `${key}: ${value}`).join(', ')
+        : '';
+      
+      return `
+        <tr>
+          <td style="padding: 16px; border-top: 1px solid #e5e7eb; vertical-align: middle;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <img src="${productImage}" alt="${productName}" style="width: 60px; height: 60px; object-fit: cover; border-radius: 4px; border: 1px solid #e5e7eb;" />
+              <div>
+                <div style="font-size: 14px; font-weight: 600; color: #1f2937; margin-bottom: 4px;">${productName}</div>
+                ${variantInfo ? `<div style="font-size: 12px; color: #6b7280;">${variantInfo}</div>` : ''}
+              </div>
+            </div>
+          </td>
+          <td style="padding: 16px; border-top: 1px solid #e5e7eb; vertical-align: middle; text-align: center; color: #1f2937;">
+            ${quantity}
+          </td>
+          <td style="padding: 16px; border-top: 1px solid #e5e7eb; vertical-align: middle; text-align: center; color: #1f2937;">
+            GH₵ ${unitPrice.toFixed(2)}
+          </td>
+          <td style="padding: 16px; border-top: 1px solid #e5e7eb; vertical-align: middle; text-align: right; font-weight: 600; color: #00afef;">
+            GH₵ ${subtotal.toFixed(2)}
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Enrich order items with product images from database
+  private async enrichOrderItemsWithImages(items: any[]): Promise<any[]> {
+    if (!items || items.length === 0) {
+      return items;
+    }
+
+    const itemsWithProductIds = items.filter(item => item.product_id);
+    
+    if (itemsWithProductIds.length === 0) {
+      console.log('📧 No items with product_id to enrich with images');
+      return items;
+    }
+
+    try {
+      const productIds = itemsWithProductIds.map(item => item.product_id);
+      console.log('📧 Fetching product images for:', productIds);
+      
+      const { data: products, error: productsError } = await supabaseAdmin
+        .from('products')
+        .select('id, thumbnail, images')
+        .in('id', productIds);
+
+      if (productsError) {
+        console.error('📧 Error fetching products for images:', productsError);
+        return items;
+      }
+
+      if (products && products.length > 0) {
+        console.log('📧 Found products with images:', products.length);
+        
+        const productImageMap = new Map<string, string>();
+        products.forEach((p: any) => {
+          // Try thumbnail first, then first image from images array if available
+          let imageSource = p.thumbnail;
+          
+          // If no thumbnail, check if images array exists and has items
+          if (!imageSource && p.images) {
+            if (Array.isArray(p.images) && p.images.length > 0) {
+              imageSource = p.images[0];
+            } else if (typeof p.images === 'string') {
+              // If images is stored as JSON string, try to parse it
+              try {
+                const parsed = JSON.parse(p.images);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  imageSource = parsed[0];
+                }
+              } catch (e) {
+                // If parsing fails, treat as single image URL
+                imageSource = p.images;
+              }
+            }
+          }
+          
+          const imageUrl = this.normalizeImageUrl(imageSource);
+          if (imageUrl) {
+            productImageMap.set(p.id, imageUrl);
+            console.log(`📧 Product ${p.id} image: ${imageUrl}`);
+          }
+        });
+
+        const enrichedItems = items.map(item => {
+          if (item.product_id && productImageMap.has(item.product_id)) {
+            const imageUrl = productImageMap.get(item.product_id);
+            console.log(`📧 Enriching item ${item.product_name} with image: ${imageUrl}`);
+            return {
+              ...item,
+              product_image: imageUrl,
+              image: imageUrl,
+              thumbnail: imageUrl,
+            };
+          } else if (item.product_id) {
+            // Product exists but no image found - use reliable placeholder service
+            const placeholder = 'https://placehold.co/400x400/00afef/white?text=Product+Image';
+            console.log(`📧 Product ${item.product_id} has no image, using placeholder`);
+            return {
+              ...item,
+              product_image: placeholder,
+              image: placeholder,
+              thumbnail: placeholder,
+            };
+          }
+          return item;
+        });
+
+        return enrichedItems;
+      } else {
+        console.log('📧 No products found for image enrichment');
+      }
+    } catch (error) {
+      console.error('📧 Error enriching order items with images:', error);
+    }
+
+    return items;
+  }
+
+  // Generate price breakdown HTML for emails
+  private generatePriceBreakdownHtml({
+    subtotal,
+    discount,
+    discountCode,
+    tax,
+    shipping,
+    total,
+  }: {
+    subtotal: number;
+    discount: number;
+    discountCode: string | null;
+    tax: number;
+    shipping: number;
+    total: number;
+  }): string {
+    // For admin notification template (table format)
+    let html = `
+      <tr>
+        <td style="padding: 8px 0; text-align: right; color: #3A3A3A; font-size: 14px;"><strong>Subtotal:</strong></td>
+        <td style="padding: 8px 0; text-align: right; color: #1A1A1A; font-size: 14px; font-weight: 500;">GHS ${subtotal.toFixed(2)}</td>
+      </tr>
+    `;
+
+    if (discount > 0) {
+      html += `
+        <tr>
+          <td style="padding: 8px 0; text-align: right; color: #22c55e; font-size: 14px;">
+            <strong>Discount${discountCode ? ` (Code: ${discountCode})` : ''}:</strong>
+          </td>
+          <td style="padding: 8px 0; text-align: right; color: #22c55e; font-size: 14px; font-weight: 500;">-GHS ${discount.toFixed(2)}</td>
+        </tr>
+      `;
+    }
+
+    if (tax > 0) {
+      html += `
+        <tr>
+          <td style="padding: 8px 0; text-align: right; color: #3A3A3A; font-size: 14px;"><strong>Tax:</strong></td>
+          <td style="padding: 8px 0; text-align: right; color: #1A1A1A; font-size: 14px; font-weight: 500;">GHS ${tax.toFixed(2)}</td>
+        </tr>
+      `;
+    }
+
+    if (shipping > 0) {
+      html += `
+        <tr>
+          <td style="padding: 8px 0; text-align: right; color: #3A3A3A; font-size: 14px;"><strong>Delivery Charges:</strong></td>
+          <td style="padding: 8px 0; text-align: right; color: #1A1A1A; font-size: 14px; font-weight: 500;">GHS ${shipping.toFixed(2)}</td>
+        </tr>
+      `;
+    }
+
+    html += `
+      <tr>
+        <td style="padding: 12px 0 0 0; border-top: 2px solid #e0e0e0; text-align: right; font-size: 16px; font-weight: bold; color: #1A1A1A;"><strong>Grand Total:</strong></td>
+        <td style="padding: 12px 0 0 0; border-top: 2px solid #e0e0e0; text-align: right; font-size: 18px; color: #00afef; font-weight: bold;">GHS ${total.toFixed(2)}</td>
+      </tr>
+    `;
+
+    return html;
+  }
+
   private normalizeImageUrl(imageUrl?: string | null): string {
-    const placeholder = `${process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.hogtechgh.com'}/placeholder-product.webp`;
+    // Use reliable placeholder service that always works
+    const placeholder = 'https://placehold.co/400x400/00afef/white?text=Product+Image';
+    
     if (!imageUrl || typeof imageUrl !== 'string') {
+      console.log('📧 normalizeImageUrl: No image URL provided, using placeholder');
       return placeholder;
     }
 
     let url = imageUrl.trim();
     if (!url) {
+      console.log('📧 normalizeImageUrl: Empty URL after trim, using placeholder');
       return placeholder;
     }
 
     if (url.startsWith('data:')) {
+      console.log('📧 normalizeImageUrl: Data URL detected, returning as-is');
       return url;
     }
 
@@ -756,20 +1051,30 @@ class EnhancedEmailService {
       if (parsed.pathname.startsWith('/_next/image')) {
         const original = parsed.searchParams.get('url');
         if (original) {
+          console.log('📧 normalizeImageUrl: Found Next.js image URL, extracting original:', original);
           return this.normalizeImageUrl(decodeURIComponent(original));
         }
       }
+      console.log('📧 normalizeImageUrl: Valid URL, returning:', parsed.href);
       return parsed.href;
-    } catch {
+    } catch (error) {
+      console.log('📧 normalizeImageUrl: URL parsing failed, normalizing:', url);
       if (url.startsWith('//')) {
-        return `https:${url}`;
+        const normalized = `https:${url}`;
+        console.log('📧 normalizeImageUrl: Protocol-relative URL, normalized to:', normalized);
+        return normalized;
       }
       if (url.startsWith('/')) {
-        return `${normalizedFrontendBase}${url}`;
+        const normalized = `${normalizedFrontendBase}${url}`;
+        console.log('📧 normalizeImageUrl: Relative URL, normalized to:', normalized);
+        return normalized;
       }
       if (!/^https?:\/\//i.test(url)) {
-        return `${r2Base}/${url.replace(/^\//, '')}`;
+        const normalized = `${r2Base}/${url.replace(/^\//, '')}`;
+        console.log('📧 normalizeImageUrl: Relative path, normalized to:', normalized);
+        return normalized;
       }
+      console.log('📧 normalizeImageUrl: Returning URL as-is:', url);
       return url;
     }
   }
@@ -777,6 +1082,12 @@ class EnhancedEmailService {
   // Send admin order notification email
   async sendAdminOrderNotification(orderData: any): Promise<{ success: boolean; reason?: string }> {
     try {
+      // Fetch product images for order items
+      let orderItems = orderData.items || [];
+      if (orderItems.length > 0) {
+        orderItems = await this.enrichOrderItemsWithImages(orderItems);
+      }
+
       let template: string;
       try {
         const templatePath = resolveTemplatePath('admin-order-notification.html');
@@ -791,11 +1102,11 @@ class EnhancedEmailService {
             <style>
               body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
               .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: #FF7A19; color: white; padding: 20px; text-align: center; }
+              .header { background: #00afef; color: white; padding: 20px; text-align: center; }
               .content { background: #f9f9f9; padding: 20px; }
-              .order-info { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #FF7A19; }
+              .order-info { background: white; padding: 15px; margin: 15px 0; border-left: 4px solid #00afef; }
               .item { padding: 10px; border-bottom: 1px solid #eee; }
-              .total { font-size: 18px; font-weight: bold; color: #FF7A19; margin-top: 20px; }
+              .total { font-size: 18px; font-weight: bold; color: #00afef; margin-top: 20px; }
             </style>
           </head>
           <body>
@@ -814,9 +1125,7 @@ class EnhancedEmailService {
                 </div>
                 <h3>Order Items:</h3>
                 {{ITEMS_LIST}}
-                <div class="total">
-                  Total Amount: GHS {{TOTAL_AMOUNT}}
-                </div>
+                {{PRICE_BREAKDOWN}}
                 <p><strong>Delivery Address:</strong></p>
                 <p>{{DELIVERY_ADDRESS}}</p>
               </div>
@@ -826,24 +1135,43 @@ class EnhancedEmailService {
         `;
       }
 
+      // Calculate price breakdown
+      const subtotal = orderData.subtotal || 0;
+      const discountAmount = orderData.discount || 0;
+      const discountCode = orderData.discount_code || null;
+      const taxAmount = orderData.tax || 0;
+      const shippingFee = orderData.shipping_fee || orderData.delivery_fee || 0;
+      const total = orderData.total || 0;
+
+      // Generate price breakdown HTML
+      const priceBreakdownHtml = this.generatePriceBreakdownHtml({
+        subtotal,
+        discount: discountAmount,
+        discountCode,
+        tax: taxAmount,
+        shipping: shippingFee,
+        total,
+      });
+
       // Replace placeholders
       template = template
         .replace(/{{ORDER_NUMBER}}/g, orderData.order_number)
         .replace(/{{CUSTOMER_NAME}}/g, orderData.customer_name || 'Guest Customer')
         .replace(/{{CUSTOMER_EMAIL}}/g, orderData.customer_email || 'No email')
         .replace(/{{ORDER_DATE}}/g, new Date(orderData.created_at).toLocaleString())
-        .replace(/{{TOTAL_AMOUNT}}/g, orderData.total.toFixed(2))
+        .replace(/{{TOTAL_AMOUNT}}/g, total.toFixed(2))
         .replace(/{{DELIVERY_ADDRESS}}/g, this.formatAddress(orderData.delivery_address))
-        .replace(/{{ITEMS_LIST}}/g, this.formatOrderItems(orderData.items || []))
+        .replace(/{{ITEMS_LIST}}/g, this.formatOrderItemsAsTableRows(orderItems))
+        .replace(/{{PRICE_BREAKDOWN}}/g, priceBreakdownHtml)
         .replace(/{{ORDER_NOTES}}/g, orderData.notes ? `<div style="background-color: #f9f9f9; border-radius: 8px; padding: 15px; margin: 20px 0;"><h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">Order Notes:</h3><p style="color: #3A3A3A; font-size: 14px; margin: 0;">${orderData.notes}</p></div>` : '');
 
       // Use support email for admin notifications (they can reply)
-      // Send to support@hogtechgh.com
+      // Send TO hedgehog.technologies1@gmail.com but FROM support@hogtechgh.com
       const success = await this.sendEmail({
-        to: 'support@hogtechgh.com',
+        to: 'hedgehog.technologies1@gmail.com',
         subject: `New Order Received - ${orderData.order_number}`,
         html: template,
-      }, true); // true = use support email
+      }, true); // true = use support email (FROM support@hogtechgh.com)
 
       return { success };
     } catch (error) {

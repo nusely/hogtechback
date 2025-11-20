@@ -18,5 +18,14 @@ router.get(
   transactionController.getTransactionById
 );
 
+// Update transaction payment status
+router.patch(
+  '/:id/status',
+  authenticate,
+  isAdmin,
+  adminAuditLogger('transactions:update-status'),
+  transactionController.updateTransactionStatus.bind(transactionController)
+);
+
 export default router;
 

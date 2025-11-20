@@ -35,34 +35,32 @@
       }
 
       .header {
-        background: linear-gradient(135deg, #FF7A19, #FF9B4A);
-        padding: 32px;
+        background: linear-gradient(135deg, #00afef, #163b86);
+        padding: 40px 32px;
         text-align: center;
         color: #ffffff;
+      }
+
+      .header img {
+        height: 50px;
+        margin-bottom: 20px;
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
       }
 
       .header h1 {
         margin: 0;
         font-size: 28px;
         letter-spacing: 0.4px;
+        font-weight: 700;
       }
 
       .header p {
         margin: 12px 0 0;
         font-size: 15px;
-        opacity: 0.92;
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        background: rgba(255, 255, 255, 0.14);
-        backdrop-filter: blur(6px);
-        border-radius: 999px;
-        padding: 8px 18px;
-        font-size: 13px;
-        margin-top: 18px;
+        opacity: 0.95;
+        line-height: 1.5;
       }
 
       .content {
@@ -74,13 +72,13 @@
         border: 1px solid #eceffd;
         padding: 24px;
         margin-bottom: 28px;
-        background: linear-gradient(180deg, rgba(255, 122, 25, 0.05) 0%, rgba(255, 255, 255, 0.9) 100%);
+        background: linear-gradient(180deg, rgba(0, 175, 239, 0.05) 0%, rgba(255, 255, 255, 0.9) 100%);
       }
 
       .order-card h2 {
         margin: 0 0 12px;
         font-size: 22px;
-        color: #FF7A19;
+        color: #00afef;
       }
 
       .order-meta {
@@ -164,7 +162,7 @@
 
       .items-table td.price {
         font-weight: 600;
-        color: #FF7A19;
+        color: #00afef;
         text-align: right;
       }
 
@@ -201,7 +199,7 @@
       .summary-row.total {
         font-size: 18px;
         font-weight: 700;
-        color: #FF7A19;
+        color: #00afef;
         margin-top: 12px;
       }
 
@@ -213,7 +211,7 @@
       }
 
       .footer a {
-        color: #FF7A19;
+        color: #00afef;
         text-decoration: none;
       }
 
@@ -238,9 +236,9 @@
     <div class="wrapper">
       <div class="container">
         <div class="header">
-          <div class="badge">HOGTECH ORDER ALERT</div>
-          <h1>New order received</h1>
-          <p>A fresh order just landed in your dashboard. See the summary below.</p>
+          <img src="https://files.hogtechgh.com/IMG_0718.PNG" alt="Hogtech" />
+          <h1>New Order Received</h1>
+          <p>A new order has been placed. Review the details below.</p>
         </div>
         <div class="content">
           <div class="order-card">
@@ -286,10 +284,15 @@
           <div class="summary-card">
             <h3>Delivery details</h3>
             <p class="summary-address">{{DELIVERY_ADDRESS}}</p>
-            <div class="summary-row total">
-              <span>Total Charged</span>
-              <span>GHS {{TOTAL_AMOUNT}}</span>
-            </div>
+          </div>
+
+          <div class="summary-card">
+            <h3>Order Summary</h3>
+            <table role="presentation" style="width: 100%; border-collapse: collapse; margin-top: 12px;">
+              <tbody>
+                {{PRICE_BREAKDOWN}}
+              </tbody>
+            </table>
           </div>
         </div>
         <div class="footer">

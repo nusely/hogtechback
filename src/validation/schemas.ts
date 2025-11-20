@@ -87,10 +87,17 @@ const deliveryOptionSchema = z.object({
 
 export const orderCreateSchema = z.object({
   user_id: z.string().uuid().optional().nullable(),
+  customer_id: z.string().uuid().optional().nullable(), // Added for frontend compatibility
   subtotal: z.number().min(0),
   discount: z.number().min(0).optional().default(0),
-  discount_code: z.string().min(1).optional().nullable(),
+  discount_code: z.union([
+    z.string().min(1),
+    z.literal(''),
+    z.null(),
+  ]).optional().nullable().transform((val) => (val === '' ? null : val)),
   tax: z.number().min(0).optional().default(0),
+  tax_rate: z.number().min(0).max(100).optional().nullable(), // Added for frontend compatibility
+  tax_breakdown: z.array(z.any()).optional().nullable(), // Added for frontend compatibility
   delivery_fee: z.number().min(0).optional().default(0),
   total: z.number().min(0),
   payment_method: z.enum(['mobile_money', 'card', 'cash_on_delivery', 'paystack']),
@@ -101,21 +108,40 @@ export const orderCreateSchema = z.object({
   order_items: z.array(orderItemSchema).min(1),
 });
 
+// Item schema for discount application - made more lenient
+const discountItemSchema = z.object({
+  product_id: z.union([
+    z.string().uuid(),
+    z.string().length(0),
+    z.null(),
+    z.undefined(),
+  ]).optional(),
+  product_name: z.string().min(1),
+  quantity: z.union([
+    z.number().int().positive(),
+    z.string().transform((val) => parseInt(val, 10)),
+  ]).pipe(z.number().int().positive()),
+  unit_price: z.union([
+    z.number().min(0),
+    z.string().transform((val) => parseFloat(val)),
+  ]).pipe(z.number().min(0)),
+  subtotal: z.union([
+    z.number().min(0),
+    z.string().transform((val) => parseFloat(val)),
+  ]).pipe(z.number().min(0)),
+});
+
 export const applyDiscountSchema = z.object({
-  code: z.string().min(1),
-  subtotal: z.number().min(0),
-  deliveryFee: z.number().min(0),
-  items: z
-    .array(
-      z.object({
-        product_id: z.string().uuid().optional().nullable(),
-        product_name: z.string().min(1),
-        quantity: z.number().int().positive(),
-        unit_price: z.number().min(0),
-        subtotal: z.number().min(0),
-      })
-    )
-    .min(1),
+  code: z.string().min(1, 'Discount code is required'),
+  subtotal: z.union([
+    z.number().min(0),
+    z.string().transform((val) => parseFloat(val)),
+  ]).pipe(z.number().min(0)).default(0),
+  deliveryFee: z.union([
+    z.number().min(0),
+    z.string().transform((val) => parseFloat(val)),
+  ]).pipe(z.number().min(0)).default(0),
+  items: z.array(discountItemSchema).min(1, 'At least one item is required'),
 });
 
 const cartItemSyncSchema = z.object({

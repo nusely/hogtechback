@@ -13,11 +13,8 @@
           
           <!-- Header -->
           <tr>
-            <td style="background: linear-gradient(135deg, #FF7A19 0%, #FF9A19 100%); padding: 40px 20px; text-align: center;">
+            <td style="background: linear-gradient(135deg, #00afef 0%, #163b86 100%); padding: 40px 20px; text-align: center;">
               <img src="{{LOGO_URL}}" alt="Hogtech" style="width: 120px; height: auto; margin-bottom: 20px;">
-              <div style="background-color: #ffffff; border-radius: 50%; width: 80px; height: 80px; margin: 0 auto 20px; display: flex; align-items: center; justify-content: center;">
-                <span style="font-size: 48px;">✅</span>
-              </div>
               <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: bold;">
                 Order Confirmed!
               </h1>
@@ -69,7 +66,7 @@
                     <p style="margin: 5px 0 0 0; color: #3A3A3A; font-size: 12px;">VARIANT_INFO</p>
                   </div>
                   <div style="text-align: right;">
-                    <p style="margin: 0; color: #FF7A19; font-size: 16px; font-weight: bold;">GHC PRICE</p>
+                    <p style="margin: 0; color: #00afef; font-size: 16px; font-weight: bold;">GHC PRICE</p>
                   </div>
                 </div>
                 -->
@@ -77,18 +74,7 @@
                 <!-- Order Summary -->
                 <div style="background-color: #f9f9f9; padding: 20px;">
                   <table role="presentation" style="width: 100%;">
-                    <tr>
-                      <td style="padding: 5px 0;"><p style="margin: 0; color: #3A3A3A; font-size: 14px;">Subtotal:</p></td>
-                      <td style="padding: 5px 0; text-align: right;"><p style="margin: 0; color: #1A1A1A; font-size: 14px;">GHC {{SUBTOTAL}}</p></td>
-                    </tr>
-                    <tr>
-                      <td style="padding: 5px 0;"><p style="margin: 0; color: #3A3A3A; font-size: 14px;">Shipping:</p></td>
-                      <td style="padding: 5px 0; text-align: right;"><p style="margin: 0; color: #1A1A1A; font-size: 14px;">GHC {{SHIPPING}}</p></td>
-                    </tr>
-                    <tr style="border-top: 2px solid #e0e0e0;">
-                      <td style="padding: 15px 0 0 0;"><p style="margin: 0; color: #1A1A1A; font-size: 18px; font-weight: bold;">Total:</p></td>
-                      <td style="padding: 15px 0 0 0; text-align: right;"><p style="margin: 0; color: #FF7A19; font-size: 22px; font-weight: bold;">GHC {{TOTAL}}</p></td>
-                    </tr>
+                    {{PRICE_BREAKDOWN}}
                   </table>
                 </div>
               </div>
@@ -122,7 +108,7 @@
               <table role="presentation" style="width: 100%; margin: 30px 0;">
                 <tr>
                   <td align="center">
-                    <a href="{{TRACKING_URL}}" style="display: inline-block; background: linear-gradient(135deg, #FF7A19 0%, #FF9A19 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: bold; box-shadow: 0 4px 15px rgba(255, 122, 25, 0.3);">
+                    <a href="{{TRACKING_URL}}" style="display: inline-block; background: linear-gradient(135deg, #00afef 0%, #163b86 100%); color: #ffffff; text-decoration: none; padding: 16px 40px; border-radius: 8px; font-size: 16px; font-weight: bold; box-shadow: 0 4px 15px rgba(0, 175, 239, 0.3);">
                       Track Your Order
                     </a>
                   </td>
@@ -130,8 +116,8 @@
               </table>
 
               <!-- Next Steps -->
-              <div style="background-color: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 30px 0; border-radius: 4px;">
-                <h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">📦 What's Next?</h3>
+              <div style="background-color: #E6F7FF; border-left: 4px solid #00afef; padding: 15px; margin: 30px 0; border-radius: 4px;">
+                <h3 style="color: #1A1A1A; font-size: 16px; margin: 0 0 10px 0;">What's Next?</h3>
                 <ul style="margin: 0; padding-left: 20px; color: #3A3A3A; font-size: 14px; line-height: 1.8;">
                   <li>We'll process your order within 24-36 hours</li>
                   <li>You'll receive a shipping confirmation email with tracking details</li>
@@ -140,7 +126,7 @@
               </div>
 
               <p style="color: #3A3A3A; font-size: 13px; line-height: 1.6; margin: 20px 0 0 0; text-align: center;">
-                Questions about your order? <a href="{{CONTACT_URL}}" style="color: #FF7A19; text-decoration: underline;">Contact us</a> anytime!
+                Questions about your order? <a href="{{CONTACT_URL}}" style="color: #00afef; text-decoration: underline;">Contact us</a> anytime!
               </p>
             </td>
           </tr>
@@ -155,10 +141,10 @@
                 Our team is here to assist you 24/7
               </p>
               <p style="color: #1A1A1A; margin: 0 0 5px 0; font-size: 15px;">
-                📞 +233 55 134 4310
+                Phone: +233 553 886 5804
               </p>
               <p style="color: #1A1A1A; margin: 0; font-size: 15px;">
-                📧 support@hogtechgh.com
+                Email: support@hogtechgh.com
               </p>
             </td>
           </tr>
@@ -175,7 +161,7 @@
                   © 2025 Hogtech. All rights reserved.
                 </p>
                 <p style="color: #ffffff; opacity: 0.7; margin: 0; font-size: 11px;">
-                  Ho Civic Center Shop #22 & Accra, Ghana
+                  Z236 Weija-Oblogo Rd, Greater Accra
                 </p>
                 <p style="color: #ffffff; opacity: 0.6; margin: 15px 0 0 0; font-size: 10px;">
                   This email was sent to {{CUSTOMER_EMAIL}} regarding order {{ORDER_NUMBER}}

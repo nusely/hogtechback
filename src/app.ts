@@ -1,6 +1,9 @@
 import express, { Application } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger';
+import { initSentry, setupSentryErrorHandler } from './utils/sentry';
 import productRoutes from './routes/product.routes';
 import orderRoutes from './routes/order.routes';
 import paymentRoutes from './routes/payment.routes';
@@ -12,14 +15,20 @@ import contactRoutes from './routes/contact.routes';
 import authRoutes from './routes/auth.routes';
 import dealRoutes from './routes/deal.routes';
 import discountRoutes from './routes/discount.routes';
+import couponRoutes from './routes/coupon.routes';
 import logRoutes from './routes/log.routes';
 import settingsRoutes from './routes/settings.routes';
 import customerRoutes from './routes/customer.routes';
 import cartRoutes from './routes/cart.routes';
 import notificationRoutes from './routes/notification.routes';
+import exportRoutes from './routes/export.routes';
+import testRoutes from './routes/test.routes';
 import { errorHandler, notFound } from './middleware/error.middleware';
 import { sanitizeInput } from './middleware/sanitize.middleware';
 import { requestTimeout } from './middleware/timeout.middleware';
+
+// Initialize Sentry FIRST (before creating Express app)
+initSentry();
 
 const app: Application = express();
 
@@ -148,6 +157,24 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', message: 'Hogtech API is running' });
 });
 
+// API Documentation (Swagger UI)
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  customSiteTitle: 'Hogtech API Documentation',
+  customCss: `
+    .swagger-ui .topbar { display: none }
+    .swagger-ui .info .title { color: #00afef; }
+    .swagger-ui .btn.authorize { background-color: #00afef; border-color: #00afef; }
+    .swagger-ui .btn.authorize:hover { background-color: #0099d6; border-color: #0099d6; }
+  `,
+  customfavIcon: 'https://files.hogtechgh.com/IMG_0718.PNG',
+}));
+
+// Export OpenAPI spec as JSON
+app.get('/api-docs.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerSpec);
+});
+
 // API Routes
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
@@ -160,11 +187,17 @@ app.use('/api/contact', contactRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/deals', dealRoutes);
 app.use('/api/discounts', discountRoutes);
+app.use('/api/coupons', couponRoutes);
 app.use('/api/logs', logRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/customers', customerRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/export', exportRoutes);
+app.use('/api/test', testRoutes); // Sentry test endpoints
+
+// Setup Sentry error handler (must be AFTER routes but BEFORE other error handlers)
+setupSentryErrorHandler(app);
 
 // Error handling
 app.use(notFound);

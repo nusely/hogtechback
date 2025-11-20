@@ -100,29 +100,48 @@ class PDFService {
   private async addHeader(doc: any) {
     try {
       // Download logo from R2
-      // Note: PDFKit supports JPEG, PNG, GIF. For WebP, we'll try to use it directly
-      // If it fails, it will fallback to text
+      // PDFKit supports JPEG, PNG, GIF - try PNG first, then fallback to WebP attempt
       const assetBase = process.env.R2_PUBLIC_URL?.replace(/\/$/, '') || 'https://files.hogtechgh.com';
-      const logoUrl = `${assetBase}/hogtech_logo_primary.webp`;
-      const logoResponse = await axios.get(logoUrl, { 
-        responseType: 'arraybuffer',
-        timeout: 5000 // 5 second timeout
-      });
-      const logoBuffer = Buffer.from(logoResponse.data);
+      
+      // Try PNG first (PDFKit supports PNG natively)
+      let logoUrl = `${assetBase}/hogtech_logo_primary.png`;
+      let logoBuffer: Buffer | null = null;
+      
+      try {
+        const logoResponse = await axios.get(logoUrl, { 
+          responseType: 'arraybuffer',
+          timeout: 5000
+        });
+        logoBuffer = Buffer.from(logoResponse.data);
+      } catch (pngError) {
+        // If PNG doesn't exist, try WebP (may not work but worth trying)
+        console.warn('PNG logo not found, trying WebP:', pngError);
+        logoUrl = `${assetBase}/hogtech_logo_primary.webp`;
+        try {
+          const webpResponse = await axios.get(logoUrl, { 
+            responseType: 'arraybuffer',
+            timeout: 5000
+          });
+          logoBuffer = Buffer.from(webpResponse.data);
+        } catch (webpError) {
+          throw new Error('Logo not found (tried PNG and WebP)');
+        }
+      }
       
       // Try to add logo image (60x60px at top left)
-      // PDFKit may not support WebP directly, so we'll catch if it fails
-      try {
-        doc.image(logoBuffer, 50, 50, { width: 60, height: 60 });
-      } catch (imageError) {
-        // If WebP is not supported, try downloading PNG version if available
-        // For now, we'll just skip the image and use text
-        throw new Error('WebP format not supported by PDFKit');
+      if (logoBuffer) {
+        try {
+          doc.image(logoBuffer, 50, 50, { width: 60, height: 60 });
+        } catch (imageError) {
+          // If image format is not supported, skip logo
+          console.warn('Failed to add logo image to PDF:', imageError);
+          throw new Error('Image format not supported by PDFKit');
+        }
       }
       
       // Company name next to logo
       doc.fontSize(24)
-         .fillColor('#FF7A19')
+         .fillColor('#00afef')
          .text('HOGTECH', 120, 55)
          .fontSize(12)
          .fillColor('#3A3A3A')
@@ -146,7 +165,7 @@ class PDFService {
   private addHeaderFallback(doc: any) {
     // Fallback to text if logo fails to load
     doc.fontSize(24)
-       .fillColor('#FF7A19')
+       .fillColor('#00afef')
        .text('HOGTECH', 50, 50)
        .fontSize(12)
        .fillColor('#3A3A3A')
@@ -303,7 +322,7 @@ class PDFService {
 
     // Total
     doc.fontSize(12)
-       .fillColor('#FF7A19')
+       .fillColor('#00afef')
        .text('TOTAL:', 400, currentY + 15)
        .text(`GHS ${orderData.total.toFixed(2)}`, 500, currentY + 15);
   }
@@ -315,8 +334,9 @@ class PDFService {
        .fillColor('#3A3A3A')
        .text('Thank you for choosing Hogtech!', 50, y)
        .text('For support, contact us at support@hogtechgh.com', 50, y + 15)
-       .text('Phone: +233 55 134 4310', 50, y + 30)
-       .text('Website: www.hogtechgh.com', 50, y + 45);
+       .text('Phone: +233 553 886 5804', 50, y + 30)
+       .text('Address: Z236 Weija-Oblogo Rd, Greater Accra', 50, y + 45)
+       .text('Website: www.hogtechgh.com', 50, y + 60);
   }
 
   private formatAddress(address: any): string {

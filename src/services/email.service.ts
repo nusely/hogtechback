@@ -257,11 +257,12 @@ class EmailService {
       `;
 
       // Use support email for contact form submissions (admin can reply)
+      // Send TO hedgehog.technologies1@gmail.com but FROM support@hogtechgh.com
       const success = await this.sendEmail({
-        to: 'support@hogtechgh.com',
+        to: 'hedgehog.technologies1@gmail.com',
         subject: `Contact Form: ${subject} - ${name}`,
         html: html,
-      }, true); // true = use support email
+      }, true); // true = use support email (FROM support@hogtechgh.com)
 
       return { success };
     } catch (error) {

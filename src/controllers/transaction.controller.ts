@@ -7,12 +7,13 @@ export class TransactionController {
     try {
       const { status, user_id, order_id } = req.query;
       
+      // Try with foreign key relationships first, fallback to simple query if that fails
       let query = supabaseAdmin
         .from('transactions')
         .select(`
           *,
-          order:orders!transactions_order_id_fkey(id, order_number, payment_status),
-          user:users!transactions_user_id_fkey(id, first_name, last_name, email)
+          order:orders(id, order_number, status, payment_status),
+          user:users(id, first_name, last_name, email)
         `);
 
       // Apply filters
@@ -28,27 +29,87 @@ export class TransactionController {
         query = query.eq('order_id', order_id as string);
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      let { data, error } = await query.order('created_at', { ascending: false });
+
+      // If foreign key join fails, try without joins
+      if (error) {
+        const errorWithCode = error as any;
+        console.warn('Error fetching transactions with joins, trying without joins:', {
+          code: errorWithCode.code,
+          message: errorWithCode.message,
+          details: errorWithCode.details,
+          hint: errorWithCode.hint,
+        });
+        
+        // Try simpler query without foreign key relationships
+        let simpleQuery = supabaseAdmin
+          .from('transactions')
+          .select('*')
+          .order('created_at', { ascending: false });
+        
+        if (status) {
+          simpleQuery = simpleQuery.eq('payment_status', status as string);
+        }
+        if (user_id) {
+          simpleQuery = simpleQuery.eq('user_id', user_id as string);
+        }
+        if (order_id) {
+          simpleQuery = simpleQuery.eq('order_id', order_id as string);
+        }
+        
+        const simpleResult = await simpleQuery;
+        if (simpleResult.error) {
+          throw simpleResult.error;
+        }
+        data = simpleResult.data;
+        error = null;
+      }
 
       if (error) throw error;
 
       // Ensure payment_status is set from transaction or order
-      const transactionsWithStatus = (data || []).map((tx: any) => ({
-        ...tx,
-        // Use transaction payment_status if available, otherwise fallback to order payment_status
-        payment_status: tx.payment_status || tx.order?.payment_status || 'pending',
-      }));
+      // If order is cancelled, set payment_status to cancelled
+      const transactionsWithStatus = (data || []).map((tx: any) => {
+        // If order status is cancelled, payment_status should be cancelled
+        if (tx.order?.status === 'cancelled') {
+          return {
+            ...tx,
+            payment_status: 'cancelled',
+          };
+        }
+        // Otherwise use transaction payment_status if available, otherwise fallback to order payment_status
+        return {
+          ...tx,
+          payment_status: tx.payment_status || tx.order?.payment_status || 'pending',
+        };
+      });
 
       res.json({
         success: true,
         data: transactionsWithStatus,
       });
-    } catch (error) {
-      console.error('Error fetching transactions:', error);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      const errorCode = error?.code || null;
+      const errorDetails = error?.details || null;
+      const errorHint = error?.hint || null;
+      
+      console.error('Error fetching transactions:', {
+        error,
+        message: errorMessage,
+        code: errorCode,
+        details: errorDetails,
+        hint: errorHint,
+        stack: error?.stack,
+      });
+      
       res.status(500).json({
         success: false,
         message: 'Failed to fetch transactions',
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
+        ...(errorCode && { code: errorCode }),
+        ...(errorDetails && { details: errorDetails }),
+        ...(errorHint && { hint: errorHint }),
       });
     }
   }
@@ -58,15 +119,40 @@ export class TransactionController {
     try {
       const { id } = req.params;
 
-      const { data, error } = await supabaseAdmin
+      // Try with foreign key relationships first, fallback to simple query if that fails
+      let { data, error } = await supabaseAdmin
         .from('transactions')
         .select(`
           *,
-          order:orders!transactions_order_id_fkey(id, order_number, total, status, payment_status),
-          user:users!transactions_user_id_fkey(id, first_name, last_name, email)
+          order:orders(id, order_number, total, status, payment_status),
+          user:users(id, first_name, last_name, email)
         `)
         .eq('id', id)
         .single();
+
+      // If foreign key join fails, try without joins
+      if (error) {
+        const errorWithCode = error as any;
+        console.warn('Error fetching transaction with joins, trying without joins:', {
+          code: errorWithCode.code,
+          message: errorWithCode.message,
+          details: errorWithCode.details,
+          hint: errorWithCode.hint,
+        });
+        
+        // Try simpler query without foreign key relationships
+        const simpleResult = await supabaseAdmin
+          .from('transactions')
+          .select('*')
+          .eq('id', id)
+          .single();
+        
+        if (simpleResult.error) {
+          throw simpleResult.error;
+        }
+        data = simpleResult.data;
+        error = null;
+      }
 
       if (error) throw error;
 
@@ -81,11 +167,107 @@ export class TransactionController {
         success: true,
         data: transactionWithStatus,
       });
-    } catch (error) {
-      console.error('Error fetching transaction:', error);
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Unknown error';
+      const errorCode = error?.code || null;
+      const errorDetails = error?.details || null;
+      const errorHint = error?.hint || null;
+      
+      console.error('Error fetching transaction:', {
+        error,
+        message: errorMessage,
+        code: errorCode,
+        details: errorDetails,
+        hint: errorHint,
+        stack: error?.stack,
+      });
+      
       res.status(500).json({
         success: false,
         message: 'Failed to fetch transaction',
+        error: errorMessage,
+        ...(errorCode && { code: errorCode }),
+        ...(errorDetails && { details: errorDetails }),
+        ...(errorHint && { hint: errorHint }),
+      });
+    }
+  }
+
+  // Update transaction payment status
+  async updateTransactionStatus(req: Request, res: Response) {
+    try {
+      const { id } = req.params;
+      const { payment_status } = req.body;
+
+      if (!payment_status || !['pending', 'paid', 'failed', 'refunded', 'cancelled'].includes(payment_status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment status. Must be: pending, paid, failed, refunded, or cancelled',
+        });
+      }
+
+      // Get transaction with order data
+      const { data: transaction, error: fetchError } = await supabaseAdmin
+        .from('transactions')
+        .select(`
+          *,
+          order:orders(id, order_number, status, payment_status)
+        `)
+        .eq('id', id)
+        .single();
+
+      if (fetchError || !transaction) {
+        return res.status(404).json({
+          success: false,
+          message: 'Transaction not found',
+        });
+      }
+
+      // Validation: Can only mark as "paid" (completed) if order is paid
+      if (payment_status === 'paid') {
+        const orderPaymentStatus = transaction.order?.payment_status;
+        if (orderPaymentStatus !== 'paid') {
+          return res.status(400).json({
+            success: false,
+            message: `Cannot mark transaction as completed. Order payment status is "${orderPaymentStatus}". Order must be marked as paid first.`,
+          });
+        }
+      }
+
+      // Update transaction
+      const updateData: any = {
+        payment_status,
+        status: payment_status === 'paid' ? 'success' : payment_status === 'failed' || payment_status === 'cancelled' ? 'failed' : 'pending',
+        updated_at: new Date().toISOString(),
+      };
+
+      // Set paid_at timestamp if marking as paid
+      if (payment_status === 'paid' && !transaction.paid_at) {
+        updateData.paid_at = new Date().toISOString();
+      }
+
+      const { data: updatedTransaction, error: updateError } = await supabaseAdmin
+        .from('transactions')
+        .update(updateData)
+        .eq('id', id)
+        .select(`
+          *,
+          order:orders(id, order_number, status, payment_status)
+        `)
+        .single();
+
+      if (updateError) throw updateError;
+
+      return res.json({
+        success: true,
+        message: 'Transaction status updated successfully',
+        data: updatedTransaction,
+      });
+    } catch (error: any) {
+      console.error('Error updating transaction status:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to update transaction status',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
     }

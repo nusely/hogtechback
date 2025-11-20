@@ -72,19 +72,26 @@ export const createDeal = async (req: AuthRequest, res: Response) => {
       return errorResponse(res, 'End date must be after start date', 400);
     }
 
+    // Build insert payload, only including banner_image_url if provided
+    const insertPayload: any = {
+      title,
+      description: description || null,
+      discount_percentage: discount_percentage || 0,
+      start_date,
+      end_date,
+      is_active: is_active !== false,
+      display_order: display_order || 0,
+      is_flash_deal: is_flash_deal === true,
+    };
+    
+    // Only include banner_image_url if provided (to avoid schema cache issues)
+    if (banner_image_url !== undefined && banner_image_url !== null && banner_image_url !== '') {
+      insertPayload.banner_image_url = banner_image_url;
+    }
+
     const { data, error } = await supabaseAdmin
       .from('deals')
-      .insert([{
-        title,
-        description,
-        banner_image_url,
-        discount_percentage: discount_percentage || 0,
-        start_date,
-        end_date,
-        is_active: is_active !== false,
-        display_order: display_order || 0,
-        is_flash_deal: is_flash_deal === true,
-      }])
+      .insert([insertPayload])
       .select()
       .single();
 

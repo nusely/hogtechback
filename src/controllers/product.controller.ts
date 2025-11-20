@@ -223,7 +223,7 @@ export const getLowStockProducts = async (req: AuthRequest, res: Response) => {
          sku,
          thumbnail,
          images,
-         original_price,
+         price,
          discount_price,
          category:categories(name)`
       )

@@ -10,8 +10,12 @@ export class OrderController {
   // Get all orders (admin)
   async getAllOrders(req: Request, res: Response) {
     try {
-      const { user_id, status } = req.query;
+      const { user_id, status, page = 1, limit = 10, search, date_from, date_to, has_discount } = req.query;
       
+      const pageNum = parseInt(page as string);
+      const limitNum = parseInt(limit as string);
+      const offset = (pageNum - 1) * limitNum;
+
       let query = supabaseAdmin
         .from('orders')
         .select(`
@@ -19,7 +23,7 @@ export class OrderController {
           user:users!orders_user_id_fkey(id, first_name, last_name, full_name, email),
           customer:customers!orders_customer_id_fkey(id, full_name, email, phone, source),
           order_items:order_items(*)
-        `);
+        `, { count: 'exact' });
 
       // Filter by user_id if provided
       if (user_id) {
@@ -31,13 +35,54 @@ export class OrderController {
         query = query.eq('status', status as string);
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      // Filter by date range
+      if (date_from) {
+        const fromDate = new Date(date_from as string);
+        if (!isNaN(fromDate.getTime())) {
+          query = query.gte('created_at', fromDate.toISOString());
+        }
+      }
+
+      if (date_to) {
+        const toDate = new Date(date_to as string);
+        if (!isNaN(toDate.getTime())) {
+          // Add one day and subtract 1ms to include the entire end date
+          const endOfDay = new Date(toDate);
+          endOfDay.setHours(23, 59, 59, 999);
+          query = query.lte('created_at', endOfDay.toISOString());
+        }
+      }
+
+      // Filter by discount
+      const hasDiscountValue = typeof has_discount === 'string' ? has_discount.toLowerCase() : String(has_discount || '');
+      if (hasDiscountValue === 'true') {
+        query = query.gt('discount', 0);
+      } else if (hasDiscountValue === 'false') {
+        query = query.or('discount.is.null,discount.eq.0');
+      }
+
+      // Search by order number or customer email/name
+      if (search) {
+        query = query.or(`order_number.ilike.%${search}%`);
+        // Note: searching across related tables (users/customers) is tricky in Supabase/PostgREST single query
+        // We stick to order_number for now or denormalized fields if available
+      }
+
+      const { data, error, count } = await query
+        .range(offset, offset + limitNum - 1)
+        .order('created_at', { ascending: false });
 
       if (error) throw error;
 
       res.json({
         success: true,
         data: data || [],
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: count || 0,
+          totalPages: Math.ceil((count || 0) / limitNum),
+        }
       });
     } catch (error) {
       console.error('Error fetching orders:', error);
@@ -266,6 +311,37 @@ export class OrderController {
 
       if (orderError) throw orderError;
 
+      // If order is being cancelled, automatically mark associated transactions as failed
+      if (status === 'cancelled') {
+        try {
+          const { data: transactions, error: transactionsError } = await supabaseAdmin
+            .from('transactions')
+            .select('id, payment_status')
+            .eq('order_id', id);
+
+          if (!transactionsError && transactions && transactions.length > 0) {
+            // Update all transactions for this order to failed
+            const { error: updateTransactionsError } = await supabaseAdmin
+              .from('transactions')
+              .update({
+                payment_status: 'failed',
+                status: 'failed',
+                updated_at: new Date().toISOString(),
+              })
+              .eq('order_id', id);
+
+            if (updateTransactionsError) {
+              console.warn('Warning: Failed to update transactions when order was cancelled:', updateTransactionsError);
+            } else {
+              console.log(`✅ Automatically marked ${transactions.length} transaction(s) as failed for cancelled order ${id}`);
+            }
+          }
+        } catch (transactionUpdateError: any) {
+          // Don't fail the order update if transaction update fails
+          console.warn('Warning: Error updating transactions when order was cancelled:', transactionUpdateError?.message || transactionUpdateError);
+        }
+      }
+
       // Send email notification (don't fail order update if email fails)
       try {
         // Determine customer email and name
@@ -286,11 +362,46 @@ export class OrderController {
         }
 
         if (customerEmail) {
+          // Enrich order items with product images before sending email
+          let enrichedItems = orderData.order_items || [];
+          if (enrichedItems.length > 0) {
+            const itemsWithProductIds = enrichedItems.filter((item: any) => item.product_id);
+            if (itemsWithProductIds.length > 0) {
+              const productIds = itemsWithProductIds.map((item: any) => item.product_id);
+              const { data: products } = await supabaseAdmin
+                .from('products')
+                .select('id, thumbnail, image_url')
+                .in('id', productIds);
+              
+              if (products && products.length > 0) {
+                const productImageMap = new Map(
+                  products.map((p: any) => {
+                    const normalized = this.normalizeImageUrl(p.thumbnail || p.image_url || null);
+                    return [p.id, normalized];
+                  })
+                );
+                
+                enrichedItems = enrichedItems.map((item: any) => {
+                  if (item.product_id && productImageMap.has(item.product_id)) {
+                    const imageUrl = productImageMap.get(item.product_id);
+                    return {
+                      ...item,
+                      product_image: imageUrl,
+                      image: imageUrl,
+                      thumbnail: imageUrl,
+                    };
+                  }
+                  return item;
+                });
+              }
+            }
+          }
+
           const emailData = {
             ...orderData,
             customer_name: customerName,
             customer_email: customerEmail,
-            items: orderData.order_items || [],
+            items: enrichedItems,
             delivery_address: orderData.shipping_address || orderData.delivery_address, // For email template compatibility
           };
 
@@ -484,25 +595,89 @@ export class OrderController {
 
       if (orderError) throw orderError;
 
-      // Also update the transaction's payment_status to keep it in sync
+      // Also update or create the transaction's payment_status to keep it in sync
       try {
-        const { error: transactionError } = await supabaseAdmin
+        // Check if transaction exists
+        const { data: existingTransaction } = await supabaseAdmin
           .from('transactions')
-          .update({
-            payment_status,
-            status: payment_status === 'paid' ? 'success' : payment_status === 'failed' ? 'failed' : 'pending',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('order_id', id);
+          .select('id')
+          .eq('order_id', id)
+          .maybeSingle();
 
-        if (transactionError) {
-          console.warn('Warning: Failed to update transaction payment_status:', transactionError);
-          // Don't fail the request if transaction update fails
-        } else {
-          console.log(`✅ Updated transaction payment_status to ${payment_status} for order ${id}`);
+        if (existingTransaction) {
+          // Update existing transaction
+          const { error: transactionError } = await supabaseAdmin
+            .from('transactions')
+            .update({
+              payment_status,
+              status: payment_status === 'paid' ? 'success' : payment_status === 'failed' ? 'failed' : 'pending',
+              paid_at: payment_status === 'paid' ? new Date().toISOString() : null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('order_id', id);
+
+          if (transactionError) {
+            console.warn('Warning: Failed to update transaction payment_status:', transactionError);
+          } else {
+            console.log(`✅ Updated transaction payment_status to ${payment_status} for order ${id}`);
+          }
+        } else if (payment_status === 'paid') {
+          // Create transaction if it doesn't exist and order is being marked as paid
+          const customerEmail = orderData.user?.email || 
+                               orderData.customer?.email || 
+                               (orderData.shipping_address as any)?.email ||
+                               'no-email@example.com';
+          
+          const customerName = orderData.user?.full_name ||
+                              `${orderData.user?.first_name || ''} ${orderData.user?.last_name || ''}`.trim() ||
+                              orderData.customer?.full_name ||
+                              (orderData.shipping_address as any)?.full_name ||
+                              'Customer';
+
+          const transactionData = {
+            order_id: id,
+            user_id: orderData.user_id || null,
+            transaction_reference: orderData.payment_reference || 
+                                 (orderData.shipping_address as any)?.payment_reference ||
+                                 `TXN-${id.slice(0, 8)}-${orderData.order_number}`,
+            payment_method: orderData.payment_method || 'cash_on_delivery',
+            payment_provider: orderData.payment_method === 'paystack' ? 'paystack' : 
+                             orderData.payment_method === 'cash_on_delivery' ? 'cash' : 'other',
+            amount: orderData.total || 0,
+            currency: 'GHS',
+            status: 'success',
+            payment_status: 'paid',
+            customer_email: customerEmail,
+            metadata: {
+              order_number: orderData.order_number,
+              customer_name: customerName,
+              subtotal: orderData.subtotal || 0,
+              discount: orderData.discount || 0,
+              tax: orderData.tax || 0,
+              shipping_fee: orderData.delivery_fee || 0,
+              total: orderData.total || 0,
+              payment_method: orderData.payment_method,
+              order_id: id,
+              created_from_status_update: true, // Mark as created from status update
+            },
+            initiated_at: orderData.created_at || new Date().toISOString(),
+            paid_at: new Date().toISOString(),
+            created_at: orderData.created_at || new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+
+          const { error: createTransactionError } = await supabaseAdmin
+            .from('transactions')
+            .insert([transactionData]);
+
+          if (createTransactionError) {
+            console.warn('Warning: Failed to create transaction when updating payment status:', createTransactionError);
+          } else {
+            console.log(`✅ Created transaction for order ${id} when payment status was updated to paid`);
+          }
         }
       } catch (transactionUpdateError) {
-        console.warn('Warning: Error updating transaction payment_status:', transactionUpdateError);
+        console.warn('Warning: Error updating/creating transaction payment_status:', transactionUpdateError);
         // Don't fail the request if transaction update fails
       }
 
@@ -795,8 +970,8 @@ export class OrderController {
 
       const computedSubtotal = sanitizedOrderItems.reduce((sum, item) => sum + item.subtotal, 0);
       const normalizedDeliveryFee = Number(delivery_fee ?? delivery_option?.price ?? 0) || 0;
-      const normalizedTax = Number(tax ?? 0) || 0;
 
+      // Discount code application - ONLY applies to product subtotal (not shipping)
       let appliedDiscountAmount = 0;
       let appliedDiscountCode: string | null = null;
       let adjustedDeliveryFee = normalizedDeliveryFee;
@@ -804,28 +979,54 @@ export class OrderController {
 
       if (discount_code) {
         try {
-          const evaluation = await evaluateDiscount({
+          console.log('🔍 Validating discount code:', discount_code);
+          // Force discount to apply only to products, not shipping
+          const discountResult = await evaluateDiscount({
             code: discount_code,
             subtotal: computedSubtotal,
             deliveryFee: normalizedDeliveryFee,
             items: sanitizedOrderItems,
           });
 
-          appliedDiscountAmount = Number(evaluation.discountAmount.toFixed(2));
-          adjustedDeliveryFee = Number(evaluation.adjustedDeliveryFee.toFixed(2));
-          appliedDiscountCode = evaluation.code;
-          discountRecordId = evaluation.discountId;
-        } catch (error: any) {
-          console.error('❌ Discount validation failed:', error);
-          return res.status(400).json({
-            success: false,
-            message: error?.message || 'Unable to apply discount code',
+          appliedDiscountAmount = discountResult.discountAmount;
+          appliedDiscountCode = discountResult.code;
+          // Only adjust delivery fee if it's a free_shipping coupon
+          adjustedDeliveryFee = discountResult.type === 'free_shipping' ? discountResult.adjustedDeliveryFee : normalizedDeliveryFee;
+          discountRecordId = discountResult.discountId;
+
+          console.log('✅ Discount applied:', {
+            code: appliedDiscountCode,
+            amount: appliedDiscountAmount,
+            type: discountResult.type,
+            adjustedDeliveryFee,
           });
+        } catch (discountError: any) {
+          console.warn('⚠️ Invalid discount code provided:', discount_code, discountError.message);
+          // We don't fail the order, just ignore the invalid discount
         }
       }
 
+      // Calculate discounted subtotal (products only - discount does NOT apply to shipping)
+      const discountedSubtotal = Math.max(0, computedSubtotal - appliedDiscountAmount);
+
+      // Tax should be calculated on the DISCOUNTED product subtotal (not original subtotal)
+      // Use the tax provided from frontend (which should already be calculated on discounted amount)
+      // If not provided, tax would be 0 (frontend should always provide it)
+      let normalizedTax = Number(tax ?? 0) || 0;
+      
+      // Log for verification
+      console.log('💰 Order calculation:', {
+        originalSubtotal: computedSubtotal,
+        discountAmount: appliedDiscountAmount,
+        discountedSubtotal,
+        tax: normalizedTax,
+        shipping: adjustedDeliveryFee,
+        total: discountedSubtotal + normalizedTax + adjustedDeliveryFee,
+      });
+      
+      // Final total: discounted product subtotal + tax (on discounted amount) + shipping
       const computedTotal = Number(
-        (computedSubtotal - appliedDiscountAmount + adjustedDeliveryFee + normalizedTax).toFixed(2)
+        (discountedSubtotal + normalizedTax + adjustedDeliveryFee).toFixed(2)
       );
 
       if (computedTotal <= 0) {
@@ -1028,7 +1229,17 @@ export class OrderController {
           item.subtotal ?? item.total_price ?? unitPrice * quantity
         );
 
-        const normalizedImage = this.normalizeImageUrl(item.product_image || item.thumbnail || null);
+        // Normalize image URL - ensure we always have a valid URL (use placeholder if needed)
+        let normalizedImage = this.normalizeImageUrl(item.product_image || item.thumbnail || item.image || null);
+        
+        // If normalizedImage is null, use placeholder
+        if (!normalizedImage) {
+          const r2Base = process.env.R2_PUBLIC_URL
+            ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
+            : 'https://files.hogtechgh.com';
+          normalizedImage = `${r2Base}/placeholder-product.webp`;
+        }
+        
         const standaloneSourceId = !hasValidProduct
           ? (
             typeof item.standalone_source_id === 'string' && item.standalone_source_id.trim().length > 0
@@ -1053,23 +1264,109 @@ export class OrderController {
             }
           : null;
 
-        return {
+        // Build order item payload - matching actual database schema
+        const orderItemPayload: any = {
           order_id: orderData.id,
           product_id: hasValidProduct ? candidateId : null,
           product_name: item.product_name || item.name || 'Deal Product',
-          product_image: normalizedImage,
           quantity,
           unit_price: unitPrice,
-          total_price: totalPrice,
-          selected_variants: item.selected_variants || {},
-          deal_product_id: standaloneSourceId,
-          deal_snapshot: dealSnapshot,
+          subtotal: totalPrice, // Database uses 'subtotal' not 'total_price'
+          variant_options: item.selected_variants || {}, // Database uses 'variant_options' not 'selected_variants'
+          // Note: product_image column doesn't exist in the database schema
+          // But we'll include it in the payload for email purposes (won't be saved to DB)
+          product_image: normalizedImage, // For email template - always has a value (placeholder if needed)
+          image: normalizedImage, // Alternative field name for email compatibility
+          thumbnail: normalizedImage, // Another alternative
         };
+
+        // Include deal_product_id and deal_snapshot if they exist
+        if (standaloneSourceId) {
+          orderItemPayload.deal_product_id = standaloneSourceId;
+        }
+        if (dealSnapshot) {
+          orderItemPayload.deal_snapshot = dealSnapshot;
+        }
+
+        return orderItemPayload;
       });
 
+      // ALWAYS fetch product images from database to ensure we have the latest images
+      const r2Base = process.env.R2_PUBLIC_URL
+        ? process.env.R2_PUBLIC_URL.replace(/\/$/, '')
+        : 'https://files.hogtechgh.com';
+      const placeholderUrl = `${r2Base}/placeholder-product.webp`;
+      
+      const itemsWithProductIds = orderItems.filter(item => item.product_id);
+      
+      if (itemsWithProductIds.length > 0) {
+        const productIds = itemsWithProductIds.map(item => item.product_id);
+        console.log('📧 Fetching product images from database for order items:', productIds);
+        
+        const { data: products, error: productsError } = await supabaseAdmin
+          .from('products')
+          .select('id, thumbnail, image_url')
+          .in('id', productIds);
+        
+        if (!productsError && products && products.length > 0) {
+          console.log(`📧 Found ${products.length} products in database`);
+          
+          const productImageMap = new Map(
+            products.map((p: any) => {
+              const normalized = this.normalizeImageUrl(p.thumbnail || p.image_url || null);
+              const finalUrl = normalized || placeholderUrl;
+              console.log(`📧 Product ${p.id}: ${p.thumbnail || p.image_url || 'no image'} -> ${finalUrl}`);
+              return [p.id, finalUrl];
+            })
+          );
+          
+          // Update images in orderItems for email purposes - always use database images
+          orderItems.forEach(item => {
+            if (item.product_id && productImageMap.has(item.product_id)) {
+              const imageUrl = productImageMap.get(item.product_id);
+              item.product_image = imageUrl;
+              item.image = imageUrl;
+              item.thumbnail = imageUrl;
+              console.log(`📧 Updated item "${item.product_name}" (${item.product_id}) with image: ${imageUrl}`);
+            } else if (item.product_id) {
+              // Product exists but no image found in database - use placeholder
+              console.log(`📧 Product ${item.product_id} not found in database, using placeholder`);
+              item.product_image = placeholderUrl;
+              item.image = placeholderUrl;
+              item.thumbnail = placeholderUrl;
+            }
+          });
+        } else if (productsError) {
+          console.error('📧 Error fetching products for images:', productsError);
+        } else {
+          console.warn('📧 No products found in database for product IDs:', productIds);
+        }
+      }
+      
+      // Ensure all items have at least a placeholder image
+      orderItems.forEach(item => {
+        if (!item.product_image || !item.image || !item.thumbnail) {
+          console.log(`📧 Item "${item.product_name}" missing image, adding placeholder`);
+          item.product_image = placeholderUrl;
+          item.image = placeholderUrl;
+          item.thumbnail = placeholderUrl;
+        }
+      });
+      
+      // Log order items with images for debugging
+      console.log('📧 Final order items prepared for email:', orderItems.map(item => ({
+        product_name: item.product_name,
+        product_id: item.product_id,
+        product_image: item.product_image,
+        image: item.image,
+        thumbnail: item.thumbnail,
+        has_valid_image: !!item.product_image && !item.product_image.includes('placeholder'),
+      })));
+
+      // Insert order items (product_image fields will be ignored by database)
       const { error: itemsError } = await supabaseAdmin
         .from('order_items')
-        .insert(orderItems);
+        .insert(orderItems.map(({ product_image, image, thumbnail, ...item }) => item)); // Remove image fields before insert
 
       if (itemsError) {
         console.error('❌ Order items creation failed:', itemsError);
@@ -1114,40 +1411,43 @@ export class OrderController {
             }
           } else {
             console.error(`❌ Error fetching product ${item.product_id} for stock update:`, productError);
-            }
-          } else if (item.deal_product_id) {
-            const { data: dealProduct, error: dealProductError } = await supabaseAdmin
-              .from('deal_products')
-              .select('stock_quantity')
-              .eq('id', item.deal_product_id)
-              .single();
-
-            if (!dealProductError && dealProduct && dealProduct.stock_quantity !== null) {
-              const currentStock = dealProduct.stock_quantity || 0;
-              const newStock = Math.max(0, currentStock - item.quantity);
-
-              const { error: updateDealStockError } = await supabaseAdmin
-                .from('deal_products')
-                .update({ stock_quantity: newStock })
-                .eq('id', item.deal_product_id);
-
-              if (updateDealStockError) {
-                console.error(
-                  `❌ Failed to update stock for deal product ${item.deal_product_id}:`,
-                  updateDealStockError
-                );
-              } else {
-                console.log(
-                  `✅ Decreased stock for deal product ${item.deal_product_id}: ${currentStock} → ${newStock}`
-                );
-              }
-            } else if (dealProductError) {
-              console.error(
-                `❌ Error fetching deal product ${item.deal_product_id} for stock update:`,
-                dealProductError
-              );
-            }
           }
+          }
+          // TODO: Uncomment when deal_product_id column is added and schema cache is refreshed
+          // Deal product stock update code commented out until migration is complete
+          // } else if (item.deal_product_id) {
+          //   const { data: dealProduct, error: dealProductError } = await supabaseAdmin
+          //     .from('deal_products')
+          //     .select('stock_quantity')
+          //     .eq('id', item.deal_product_id)
+          //     .single();
+
+          //   if (!dealProductError && dealProduct && dealProduct.stock_quantity !== null) {
+          //     const currentStock = dealProduct.stock_quantity || 0;
+          //     const newStock = Math.max(0, currentStock - item.quantity);
+
+          //     const { error: updateDealStockError } = await supabaseAdmin
+          //       .from('deal_products')
+          //       .update({ stock_quantity: newStock })
+          //       .eq('id', item.deal_product_id);
+
+          //     if (updateDealStockError) {
+          //       console.error(
+          //         `❌ Failed to update stock for deal product ${item.deal_product_id}:`,
+          //         updateDealStockError
+          //       );
+          //     } else {
+          //       console.log(
+          //         `✅ Decreased stock for deal product ${item.deal_product_id}: ${currentStock} → ${newStock}`
+          //       );
+          //     }
+          //   } else if (dealProductError) {
+          //     console.error(
+          //       `❌ Error fetching deal product ${item.deal_product_id} for stock update:`,
+          //       dealProductError
+          //     );
+          //   }
+          // }
         }
       } catch (stockError) {
         console.error('❌ Error updating product stock:', stockError);
@@ -1406,22 +1706,32 @@ export class OrderController {
         data: responsePayload,
       });
     } catch (error: any) {
+      const errorMessage = error instanceof Error ? error.message : (error?.message || 'Unknown error');
+      const errorDetails = error?.details || error?.hint || null;
+      const errorCode = error?.code || null;
+      
       console.error('❌ Error creating order:', {
         error,
-        message: error instanceof Error ? error.message : 'Unknown error',
+        message: errorMessage,
         stack: error instanceof Error ? error.stack : undefined,
-        code: error?.code,
-        details: error?.details,
+        code: errorCode,
+        details: errorDetails,
         hint: error?.hint,
         fullError: JSON.stringify(error, Object.getOwnPropertyNames(error), 2),
       });
-      res.status(500).json({
-        success: false,
-        message: 'Failed to create order',
-        error: error instanceof Error ? error.message : (error?.message || 'Unknown error'),
-        details: error?.details || error?.hint || undefined,
-        code: error?.code || undefined,
-      });
+      
+      // Ensure we always send a proper JSON response
+      if (!res.headersSent) {
+        res.status(500).json({
+          success: false,
+          message: 'Failed to create order',
+          error: errorMessage,
+          ...(errorDetails && { details: errorDetails }),
+          ...(errorCode && { code: errorCode }),
+        });
+      } else {
+        console.error('⚠️ Response already sent, cannot send error response');
+      }
     }
   }
 

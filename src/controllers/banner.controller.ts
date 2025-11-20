@@ -103,6 +103,45 @@ export const getAllBanners = async (req: AuthRequest, res: Response) => {
   }
 };
 
+// Helper function to sanitize and normalize URLs
+const sanitizeUrl = (url: string | null | undefined): string | null => {
+  if (!url || typeof url !== 'string') {
+    return null;
+  }
+  
+  // Remove HTML entities and decode
+  let sanitized = url
+    .replace(/&#x2F;/g, '/')  // Replace HTML entity for /
+    .replace(/&#x2f;/g, '/')   // Replace lowercase HTML entity for /
+    .replace(/&amp;/g, '&')   // Replace HTML entity for &
+    .replace(/&lt;/g, '<')    // Replace HTML entity for <
+    .replace(/&gt;/g, '>')    // Replace HTML entity for >
+    .replace(/&quot;/g, '"')  // Replace HTML entity for "
+    .replace(/&#39;/g, "'")   // Replace HTML entity for '
+    .trim();
+  
+  // Remove leading & if present (malformed URL)
+  if (sanitized.startsWith('&')) {
+    sanitized = sanitized.substring(1);
+  }
+  
+  // Ensure URL starts with http:// or https://
+  if (sanitized && !sanitized.match(/^https?:\/\//i)) {
+    // If it starts with //, add https:
+    if (sanitized.startsWith('//')) {
+      sanitized = `https:${sanitized}`;
+    } else if (sanitized.startsWith('/')) {
+      // If it's a relative URL, prepend https://files.hogtechgh.com
+      sanitized = `https://files.hogtechgh.com${sanitized}`;
+    } else {
+      // Otherwise, prepend https://
+      sanitized = `https://${sanitized}`;
+    }
+  }
+  
+  return sanitized || null;
+};
+
 export const createBanner = async (req: AuthRequest, res: Response) => {
   try {
     const bannerData = req.body;
@@ -112,8 +151,8 @@ export const createBanner = async (req: AuthRequest, res: Response) => {
     const cleanBannerData: any = {
       title: bannerData.title,
       subtitle: bannerData.subtitle || null,
-      image_url: bannerData.image_url,
-      link: bannerData.link || bannerData.link_url || null, // Map link_url to link
+      image_url: sanitizeUrl(bannerData.image_url),
+      link: sanitizeUrl(bannerData.link || bannerData.link_url), // Map link_url to link
       button_text: bannerData.button_text || null,
       order: bannerData.order || bannerData.position || bannerData.display_order || 0, // Map position/display_order to order
       active: bannerData.active !== undefined ? bannerData.active : true,
@@ -153,9 +192,9 @@ export const updateBanner = async (req: AuthRequest, res: Response) => {
     // Map fields to correct column names
     if (updates.title !== undefined) cleanUpdates.title = updates.title;
     if (updates.subtitle !== undefined) cleanUpdates.subtitle = updates.subtitle;
-    if (updates.image_url !== undefined) cleanUpdates.image_url = updates.image_url;
-    if (updates.link !== undefined) cleanUpdates.link = updates.link;
-    if (updates.link_url !== undefined) cleanUpdates.link = updates.link_url; // Map link_url to link
+    if (updates.image_url !== undefined) cleanUpdates.image_url = sanitizeUrl(updates.image_url);
+    if (updates.link !== undefined) cleanUpdates.link = sanitizeUrl(updates.link);
+    if (updates.link_url !== undefined) cleanUpdates.link = sanitizeUrl(updates.link_url); // Map link_url to link
     if (updates.button_text !== undefined) cleanUpdates.button_text = updates.button_text;
     if (updates.order !== undefined) cleanUpdates.order = updates.order;
     if (updates.position !== undefined) cleanUpdates.order = updates.position; // Map position to order
