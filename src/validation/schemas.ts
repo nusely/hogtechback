@@ -100,7 +100,7 @@ export const orderCreateSchema = z.object({
   tax_breakdown: z.array(z.any()).optional().nullable(), // Added for frontend compatibility
   delivery_fee: z.number().min(0).optional().default(0),
   total: z.number().min(0),
-  payment_method: z.enum(['mobile_money', 'card', 'cash_on_delivery', 'paystack']),
+  payment_method: z.enum(['mobile_money', 'momo']),
   delivery_address: customerAddressSchema,
   delivery_option: deliveryOptionSchema.optional().nullable(),
   notes: z.string().max(500).optional().nullable(),

@@ -568,7 +568,7 @@ export class OrderController {
   async updatePaymentStatus(req: Request, res: Response) {
     try {
       const { id } = req.params;
-      const { payment_status } = req.body;
+      const { payment_status, payment_method } = req.body;
 
       if (!payment_status || !['pending', 'paid', 'failed', 'refunded'].includes(payment_status)) {
         return res.status(400).json({
@@ -577,13 +577,29 @@ export class OrderController {
         });
       }
 
+      // Validate payment_method if provided
+      if (payment_method && !['mobile_money', 'momo'].includes(payment_method)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid payment method. Must be: mobile_money or momo',
+        });
+      }
+
+      // Prepare update data
+      const updateData: any = {
+        payment_status,
+        updated_at: new Date().toISOString(),
+      };
+
+      // Only update payment_method if provided and status is 'paid'
+      if (payment_status === 'paid' && payment_method) {
+        updateData.payment_method = payment_method;
+      }
+
       // Update payment status in orders table
       const { data: orderData, error: orderError } = await supabaseAdmin
         .from('orders')
-        .update({
-          payment_status,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', id)
         .select(`
           *,
@@ -605,15 +621,23 @@ export class OrderController {
           .maybeSingle();
 
         if (existingTransaction) {
+          // Prepare transaction update data
+          const transactionUpdateData: any = {
+            payment_status,
+            status: payment_status === 'paid' ? 'success' : payment_status === 'failed' ? 'failed' : 'pending',
+            paid_at: payment_status === 'paid' ? new Date().toISOString() : null,
+            updated_at: new Date().toISOString(),
+          };
+
+          // Update payment_method if provided
+          if (payment_status === 'paid' && payment_method) {
+            transactionUpdateData.payment_method = payment_method;
+          }
+
           // Update existing transaction
           const { error: transactionError } = await supabaseAdmin
             .from('transactions')
-            .update({
-              payment_status,
-              status: payment_status === 'paid' ? 'success' : payment_status === 'failed' ? 'failed' : 'pending',
-              paid_at: payment_status === 'paid' ? new Date().toISOString() : null,
-              updated_at: new Date().toISOString(),
-            })
+            .update(transactionUpdateData)
             .eq('order_id', id);
 
           if (transactionError) {

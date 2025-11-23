@@ -71,3 +71,55 @@ export const isAdmin = (req: AuthRequest, res: Response, next: NextFunction) => 
   next();
 };
 
+// Optional authentication - allows guest users but attaches user if token is provided
+export const optionalAuthenticate = async (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    // If no auth header, continue as guest
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      req.user = undefined;
+      return next();
+    }
+
+    const token = authHeader.substring(7);
+
+    // Verify token with Supabase
+    const {
+      data: { user },
+      error,
+    } = await supabaseAdmin.auth.getUser(token);
+
+    // If token is invalid, continue as guest (don't fail)
+    if (error || !user) {
+      req.user = undefined;
+      return next();
+    }
+
+    // Get user profile
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('users')
+      .select('*')
+      .eq('id', user.id)
+      .single();
+
+    // If profile not found, continue as guest
+    if (profileError || !profile) {
+      req.user = undefined;
+      return next();
+    }
+
+    req.user = profile;
+    next();
+  } catch (error) {
+    console.error('Optional authentication error:', error);
+    // On error, continue as guest
+    req.user = undefined;
+    next();
+  }
+};
+

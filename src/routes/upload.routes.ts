@@ -2,14 +2,57 @@ import { Router, Request, Response } from 'express';
 import { uploadSingle, uploadMultiple } from '../middleware/upload.middleware';
 import { validateFileContent } from '../middleware/fileValidation.middleware';
 import { uploadToR2, uploadMultipleToR2, deleteFromR2, listR2Files, getSignedUrlForR2 } from '../services/r2.service';
-import { authenticate, isAdmin } from '../middleware/auth.middleware';
+import { authenticate, isAdmin, optionalAuthenticate } from '../middleware/auth.middleware';
 import { validateBody } from '../middleware/validation.middleware';
 import { presignUploadSchema } from '../validation/schemas';
 import { adminAuditLogger } from '../middleware/audit.middleware';
 
 const router = Router();
 
-// Require admin authentication for all upload operations
+// Public endpoint for return image uploads (allows authenticated users and guests)
+router.post('/return', optionalAuthenticate, uploadSingle, validateFileContent, async (req: Request, res: Response) => {
+  try {
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] };
+    const file = files?.['file']?.[0] || files?.['image']?.[0];
+    
+    if (!file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided',
+      });
+    }
+
+    // Only allow uploads to returns folder for this endpoint
+    const folder = 'returns';
+    
+    // Get custom filename from query params or body (optional)
+    const customFilename = (req.query.filename as string) || (req.body.filename as string);
+
+    // Upload to R2
+    const result = await uploadToR2(file, folder, customFilename);
+
+    if (result.success) {
+      return res.status(200).json({
+        success: true,
+        url: result.url,
+        message: 'File uploaded successfully',
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: result.error,
+      });
+    }
+  } catch (error) {
+    console.error('Return upload error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to upload file',
+    });
+  }
+});
+
+// Require admin authentication for all other upload operations
 router.use(authenticate, isAdmin, adminAuditLogger('uploads'));
 
 router.post('/presign', validateBody(presignUploadSchema), async (req: Request, res: Response) => {
@@ -74,9 +117,12 @@ router.post('/', uploadSingle, validateFileContent, async (req: Request, res: Re
 
     // Get folder from query params or body (default: 'uploads')
     const folder = (req.query.folder as string) || (req.body.folder as string) || 'uploads';
+    
+    // Get custom filename from query params or body (optional)
+    const customFilename = (req.query.filename as string) || (req.body.filename as string);
 
     // Upload to R2
-    const result = await uploadToR2(file, folder);
+    const result = await uploadToR2(file, folder, customFilename);
 
     if (result.success) {
       return res.status(200).json({
@@ -114,9 +160,12 @@ router.post('/single', uploadSingle, validateFileContent, async (req: Request, r
 
     // Get folder from query params (default: 'uploads')
     const folder = (req.query.folder as string) || 'uploads';
+    
+    // Get custom filename from query params or body (optional)
+    const customFilename = (req.query.filename as string) || (req.body.filename as string);
 
     // Upload to R2
-    const result = await uploadToR2(file, folder);
+    const result = await uploadToR2(file, folder, customFilename);
 
     if (result.success) {
       return res.status(200).json({

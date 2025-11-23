@@ -1463,6 +1463,459 @@ class EnhancedEmailService {
       return { success: false, error: 'Failed to send investment email' };
     }
   }
+
+  // Send return request confirmation email to customer
+  async sendReturnRequestConfirmationEmail(data: {
+    returnRequestId: string;
+    orderNumber: string;
+    reason: string;
+    customerEmail: string | null;
+    customerName?: string;
+    orderItems?: any[];
+    orderTotal?: number;
+    orderDate?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!data.customerEmail) {
+      // Guest customers - skip email
+      return { success: true, error: 'No customer email provided' };
+    }
+
+    try {
+      const orderItemsHtml = data.orderItems && data.orderItems.length > 0
+        ? this.formatOrderItemsForEmail(data.orderItems)
+        : '<p>Order items information not available.</p>';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Return Request Received - ${data.orderNumber}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #00afef; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0;">Return Request Received</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <p>Dear ${data.customerName || 'Customer'},</p>
+                <p>We have received your return request for <strong>Order #${data.orderNumber}</strong>.</p>
+                
+                <div style="background: #e3f2fd; border-left: 4px solid #00afef; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Return Request Details</h3>
+                  <p><strong>Return Request ID:</strong> ${data.returnRequestId}</p>
+                  <p><strong>Order Number:</strong> ${data.orderNumber}</p>
+                  ${data.orderDate ? `<p><strong>Order Date:</strong> ${new Date(data.orderDate).toLocaleDateString()}</p>` : ''}
+                  ${data.orderTotal ? `<p><strong>Order Total:</strong> GHS ${data.orderTotal.toFixed(2)}</p>` : ''}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Order Items:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  ${orderItemsHtml}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Reason for Return:</h3>
+                <div style="background: #f0f0f0; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  <p style="margin: 0;">${data.reason}</p>
+                </div>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">What Happens Next?</h3>
+                  <ol style="color: #3A3A3A; margin: 0; padding-left: 20px;">
+                    <li>Our team will review your return request (usually within 1-2 business days)</li>
+                    <li>If approved, you'll receive a Return Authorization (RA) number via email</li>
+                    <li>Follow the instructions in the approval email to complete your return</li>
+                    <li>Once we receive and inspect your return, we'll process your refund</li>
+                  </ol>
+                </div>
+
+                <p style="color: #3A3A3A;">You can track the status of your return request by checking your email or contacting our customer service team.</p>
+              </div>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 553 886 5804</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const success = await this.sendEmail({
+        to: data.customerEmail,
+        subject: `Return Request Received - Order #${data.orderNumber}`,
+        html,
+      }, true);
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending return request confirmation email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Send admin notification for new return request
+  async sendAdminReturnRequestNotification(data: {
+    returnRequestId: string;
+    orderNumber: string;
+    reason: string;
+    customerEmail: string | null;
+  }): Promise<{ success: boolean; error?: string }> {
+    try {
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>New Return Request - ${data.orderNumber}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #00afef; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0;">New Return Request</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <h2 style="color: #1A1A1A; margin-top: 0;">Return Request Details</h2>
+                <p><strong>Return Request ID:</strong> ${data.returnRequestId}</p>
+                <p><strong>Order Number:</strong> ${data.orderNumber}</p>
+                <p><strong>Customer Email:</strong> ${data.customerEmail || 'Guest Customer'}</p>
+                <p><strong>Reason for Return:</strong></p>
+                <div style="background: #f0f0f0; padding: 15px; border-radius: 4px; margin-top: 10px;">
+                  <p style="margin: 0;">${data.reason}</p>
+                </div>
+              </div>
+              <p style="text-align: center; margin-top: 20px;">
+                <a href="${process.env.FRONTEND_URL || 'https://hogtechgh.com'}/admin/returns" 
+                   style="background: #00afef; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">
+                  Review Return Request
+                </a>
+              </p>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+              <p>Hedgehog Technologies - Admin Dashboard</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const success = await this.sendEmail({
+        to: 'hedgehog.technologies1@gmail.com',
+        subject: `New Return Request - ${data.orderNumber}`,
+        html,
+      }, true);
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending admin return request notification:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Send return authorization email to customer
+  async sendReturnAuthorizationEmail(data: {
+    returnRequestId: string;
+    raNumber: string;
+    orderNumber: string;
+    returnAddress: string;
+    customerEmail: string | null;
+    customerName?: string;
+    orderItems?: any[];
+    orderTotal?: number;
+    orderDate?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!data.customerEmail) {
+      return { success: false, error: 'Customer email is required' };
+    }
+
+    try {
+      const orderItemsHtml = data.orderItems && data.orderItems.length > 0
+        ? this.formatOrderItemsForEmail(data.orderItems)
+        : '<p>Order items information not available.</p>';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Return Authorization - ${data.raNumber}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #00afef; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0;">Return Authorization Approved</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <p>Dear ${data.customerName || 'Customer'},</p>
+                <p>Your return request for <strong>Order #${data.orderNumber}</strong> has been approved!</p>
+                
+                <div style="background: #e8f5e9; border-left: 4px solid #4caf50; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Return Authorization Number</h3>
+                  <p style="font-size: 24px; font-weight: bold; color: #00afef; margin: 10px 0;">${data.raNumber}</p>
+                  <p style="margin: 0; font-size: 12px; color: #666;">Please include this RA number in your return package</p>
+                </div>
+
+                <h3 style="color: #1A1A1A;">Order Details:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  <p><strong>Order Number:</strong> ${data.orderNumber}</p>
+                  ${data.orderDate ? `<p><strong>Order Date:</strong> ${new Date(data.orderDate).toLocaleDateString()}</p>` : ''}
+                  ${data.orderTotal ? `<p><strong>Order Total:</strong> GHS ${data.orderTotal.toFixed(2)}</p>` : ''}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Items Being Returned:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  ${orderItemsHtml}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Return Instructions:</h3>
+                <ol style="color: #3A3A3A;">
+                  <li>Carefully pack the item in its original packaging with all accessories, manuals, and tags</li>
+                  <li>Include a copy of your invoice and write the RA number <strong>${data.raNumber}</strong> on the package</li>
+                  <li>Ship the package to the address below, or drop it off at our office in Accra</li>
+                </ol>
+
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Return Address:</h3>
+                  <p style="margin: 0; color: #3A3A3A;">${data.returnAddress}</p>
+                </div>
+
+                <p style="color: #3A3A3A;">Once we receive and inspect your return (1-2 business days), we'll process your refund within 5-7 business days to your original payment method.</p>
+              </div>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 553 886 5804</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const success = await this.sendEmail({
+        to: data.customerEmail,
+        subject: `Return Authorization Approved - ${data.raNumber}`,
+        html,
+      }, true);
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending return authorization email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Send return rejection email to customer
+  async sendReturnRejectionEmail(data: {
+    returnRequestId: string;
+    orderNumber: string;
+    rejectionReason: string;
+    customerEmail: string | null;
+    customerName?: string;
+    orderItems?: any[];
+    orderTotal?: number;
+    orderDate?: string;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!data.customerEmail) {
+      return { success: false, error: 'Customer email is required' };
+    }
+
+    try {
+      const orderItemsHtml = data.orderItems && data.orderItems.length > 0
+        ? this.formatOrderItemsForEmail(data.orderItems)
+        : '<p>Order items information not available.</p>';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Return Request Update - ${data.orderNumber}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: #dc3545; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0;">Return Request Update</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <p>Dear ${data.customerName || 'Customer'},</p>
+                <p>We regret to inform you that your return request for <strong>Order #${data.orderNumber}</strong> has been declined.</p>
+                
+                <h3 style="color: #1A1A1A;">Order Details:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  <p><strong>Order Number:</strong> ${data.orderNumber}</p>
+                  ${data.orderDate ? `<p><strong>Order Date:</strong> ${new Date(data.orderDate).toLocaleDateString()}</p>` : ''}
+                  ${data.orderTotal ? `<p><strong>Order Total:</strong> GHS ${data.orderTotal.toFixed(2)}</p>` : ''}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Order Items:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  ${orderItemsHtml}
+                </div>
+                
+                <div style="background: #f8d7da; border-left: 4px solid #dc3545; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Reason for Rejection:</h3>
+                  <p style="margin: 0; color: #3A3A3A;">${data.rejectionReason}</p>
+                </div>
+
+                <p style="color: #3A3A3A;">If you have any questions or concerns about this decision, please contact our customer service team:</p>
+                <ul style="color: #3A3A3A;">
+                  <li>Email: <a href="mailto:hedgehog.technologies1@gmail.com" style="color: #00afef;">hedgehog.technologies1@gmail.com</a></li>
+                  <li>Phone: <a href="tel:+2335538865804" style="color: #00afef;">+233 553 886 5804</a></li>
+                </ul>
+              </div>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 553 886 5804</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const success = await this.sendEmail({
+        to: data.customerEmail,
+        subject: `Return Request Update - ${data.orderNumber}`,
+        html,
+      }, true);
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending return rejection email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
+
+  // Send return status update email (for processing, completed, etc.)
+  async sendReturnStatusUpdateEmail(data: {
+    returnRequestId: string;
+    orderNumber: string;
+    status: string;
+    raNumber?: string | null;
+    customerEmail: string | null;
+    customerName?: string;
+    orderItems?: any[];
+    orderTotal?: number;
+    orderDate?: string;
+    adminNotes?: string | null;
+  }): Promise<{ success: boolean; error?: string }> {
+    if (!data.customerEmail) {
+      return { success: true, error: 'No customer email provided' };
+    }
+
+    try {
+      const statusMessages: Record<string, { title: string; color: string; bgColor: string; message: string }> = {
+        processing: {
+          title: 'Return Processing',
+          color: '#00afef',
+          bgColor: '#e3f2fd',
+          message: 'Your return is being processed. We have received your returned item and are currently inspecting it.',
+        },
+        completed: {
+          title: 'Return Completed',
+          color: '#4caf50',
+          bgColor: '#e8f5e9',
+          message: 'Your return has been completed! Your refund has been processed and will appear in your account within 5-7 business days.',
+        },
+        cancelled: {
+          title: 'Return Cancelled',
+          color: '#666',
+          bgColor: '#f5f5f5',
+          message: 'Your return request has been cancelled.',
+        },
+      };
+
+      const statusInfo = statusMessages[data.status] || {
+        title: 'Return Status Update',
+        color: '#00afef',
+        bgColor: '#e3f2fd',
+        message: `Your return request status has been updated to: ${data.status}`,
+      };
+
+      const orderItemsHtml = data.orderItems && data.orderItems.length > 0
+        ? this.formatOrderItemsForEmail(data.orderItems)
+        : '<p>Order items information not available.</p>';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Return Status Update - ${data.orderNumber}</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+          <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+            <div style="background: ${statusInfo.color}; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+              <h1 style="margin: 0;">${statusInfo.title}</h1>
+            </div>
+            <div style="background: #f9f9f9; padding: 20px; border-radius: 0 0 8px 8px;">
+              <div style="background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <p>Dear ${data.customerName || 'Customer'},</p>
+                <p>Your return request for <strong>Order #${data.orderNumber}</strong> status has been updated.</p>
+                
+                ${data.raNumber ? `
+                <div style="background: ${statusInfo.bgColor}; border-left: 4px solid ${statusInfo.color}; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Return Authorization Number</h3>
+                  <p style="font-size: 20px; font-weight: bold; color: ${statusInfo.color}; margin: 10px 0;">${data.raNumber}</p>
+                </div>
+                ` : ''}
+
+                <div style="background: ${statusInfo.bgColor}; border-left: 4px solid ${statusInfo.color}; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Status Update</h3>
+                  <p style="margin: 0; color: #3A3A3A;">${statusInfo.message}</p>
+                </div>
+
+                <h3 style="color: #1A1A1A;">Order Details:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  <p><strong>Order Number:</strong> ${data.orderNumber}</p>
+                  ${data.orderDate ? `<p><strong>Order Date:</strong> ${new Date(data.orderDate).toLocaleDateString()}</p>` : ''}
+                  ${data.orderTotal ? `<p><strong>Order Total:</strong> GHS ${data.orderTotal.toFixed(2)}</p>` : ''}
+                </div>
+
+                <h3 style="color: #1A1A1A;">Order Items:</h3>
+                <div style="background: #f9f9f9; padding: 15px; border-radius: 4px; margin: 15px 0;">
+                  ${orderItemsHtml}
+                </div>
+
+                ${data.adminNotes ? `
+                <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+                  <h3 style="color: #1A1A1A; margin-top: 0;">Additional Notes:</h3>
+                  <p style="margin: 0; color: #3A3A3A;">${data.adminNotes}</p>
+                </div>
+                ` : ''}
+
+                <p style="color: #3A3A3A;">If you have any questions, please contact our customer service team:</p>
+                <ul style="color: #3A3A3A;">
+                  <li>Email: <a href="mailto:hedgehog.technologies1@gmail.com" style="color: #00afef;">hedgehog.technologies1@gmail.com</a></li>
+                  <li>Phone: <a href="tel:+2335538865804" style="color: #00afef;">+233 553 886 5804</a></li>
+                </ul>
+              </div>
+            </div>
+            <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: center;">
+              <p>Hedgehog Technologies - Your Trusted Tech Partner</p>
+              <p>Email: support@hogtechgh.com | Phone: +233 553 886 5804</p>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+
+      const success = await this.sendEmail({
+        to: data.customerEmail,
+        subject: `Return Status Update - Order #${data.orderNumber}`,
+        html,
+      }, true);
+
+      return { success };
+    } catch (error) {
+      console.error('Error sending return status update email:', error);
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+    }
+  }
 }
 
 export default new EnhancedEmailService();

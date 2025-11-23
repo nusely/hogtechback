@@ -7,14 +7,11 @@ export class TransactionController {
     try {
       const { status, user_id, order_id } = req.query;
       
-      // Try with foreign key relationships first, fallback to simple query if that fails
+      // Fetch transactions first (without joins to avoid relationship query issues)
       let query = supabaseAdmin
         .from('transactions')
-        .select(`
-          *,
-          order:orders(id, order_number, status, payment_status),
-          user:users(id, first_name, last_name, email)
-        `);
+        .select('*')
+        .order('created_at', { ascending: false });
 
       // Apply filters
       if (status) {
@@ -29,43 +26,58 @@ export class TransactionController {
         query = query.eq('order_id', order_id as string);
       }
 
-      let { data, error } = await query.order('created_at', { ascending: false });
+      const { data: transactionsData, error: transactionsError } = await query;
 
-      // If foreign key join fails, try without joins
-      if (error) {
-        const errorWithCode = error as any;
-        console.warn('Error fetching transactions with joins, trying without joins:', {
-          code: errorWithCode.code,
-          message: errorWithCode.message,
-          details: errorWithCode.details,
-          hint: errorWithCode.hint,
-        });
-        
-        // Try simpler query without foreign key relationships
-        let simpleQuery = supabaseAdmin
-          .from('transactions')
-          .select('*')
-          .order('created_at', { ascending: false });
-        
-        if (status) {
-          simpleQuery = simpleQuery.eq('payment_status', status as string);
-        }
-        if (user_id) {
-          simpleQuery = simpleQuery.eq('user_id', user_id as string);
-        }
-        if (order_id) {
-          simpleQuery = simpleQuery.eq('order_id', order_id as string);
-        }
-        
-        const simpleResult = await simpleQuery;
-        if (simpleResult.error) {
-          throw simpleResult.error;
-        }
-        data = simpleResult.data;
-        error = null;
+      if (transactionsError) {
+        throw transactionsError;
       }
 
-      if (error) throw error;
+      // Fetch orders separately to get order_numbers (avoid relationship query issues)
+      const orderIds = [...new Set((transactionsData || [])
+        .map((tx: any) => tx.order_id)
+        .filter((id: any) => id))] as string[];
+
+      let ordersMap: { [key: string]: any } = {};
+      if (orderIds.length > 0) {
+        const { data: ordersData } = await supabaseAdmin
+          .from('orders')
+          .select('id, order_number, status, payment_status')
+          .in('id', orderIds);
+        
+        if (ordersData) {
+          ordersMap = ordersData.reduce((acc: any, order: any) => {
+            acc[order.id] = order;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Fetch users separately
+      const userIds = [...new Set((transactionsData || [])
+        .map((tx: any) => tx.user_id)
+        .filter((id: any) => id))] as string[];
+
+      let usersMap: { [key: string]: any } = {};
+      if (userIds.length > 0) {
+        const { data: usersData } = await supabaseAdmin
+          .from('users')
+          .select('id, first_name, last_name, email')
+          .in('id', userIds);
+        
+        if (usersData) {
+          usersMap = usersData.reduce((acc: any, user: any) => {
+            acc[user.id] = user;
+            return acc;
+          }, {});
+        }
+      }
+
+      // Combine transactions with orders and users
+      const data = (transactionsData || []).map((tx: any) => ({
+        ...tx,
+        order: tx.order_id ? ordersMap[tx.order_id] : null,
+        user: tx.user_id ? usersMap[tx.user_id] : null,
+      }));
 
       // Ensure payment_status is set from transaction or order
       // If order is cancelled, set payment_status to cancelled

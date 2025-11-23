@@ -23,6 +23,7 @@ import cartRoutes from './routes/cart.routes';
 import notificationRoutes from './routes/notification.routes';
 import exportRoutes from './routes/export.routes';
 import testRoutes from './routes/test.routes';
+import returnRequestRoutes from './routes/returnRequest.routes';
 import { errorHandler, notFound } from './middleware/error.middleware';
 import { sanitizeInput } from './middleware/sanitize.middleware';
 import { requestTimeout } from './middleware/timeout.middleware';
@@ -96,32 +97,53 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    // Only in development - in production, require origin
+    // Allow requests with no origin for:
+    // - Health checks (HEAD requests from monitoring services like Render.com)
+    // - Mobile apps
+    // - Server-to-server requests
+    // - Development environment
     if (!origin) {
-      if (process.env.NODE_ENV === 'development') {
-        return callback(null, true);
-      }
-      return callback(new Error('CORS: Origin header required'));
+      // Allow all requests without origin
+      // This is safe because:
+      // 1. Health checks (HEAD/GET) don't return sensitive data
+      // 2. API endpoints still require authentication
+      // 3. Monitoring services and load balancers need this
+      return callback(null, true);
     }
     
     if (normalizedOrigins.indexOf(origin) !== -1) {
       if (process.env.NODE_ENV === 'production') {
         console.log(`✅ CORS: Allowing request from origin: ${origin}`);
       }
-      callback(null, true);
-    } else {
-      // In production, reject unknown origins
-      if (process.env.NODE_ENV === 'production') {
-        console.error(`❌ CORS: Blocked request from origin: ${origin}`);
-        console.error(`   Allowed origins: ${normalizedOrigins.join(', ')}`);
-        console.error(`   💡 Tip: Add ${origin} to FRONTEND_URL environment variable in Render.com`);
-        return callback(new Error(`CORS: Origin ${origin} not allowed. Add it to FRONTEND_URL env var.`));
-      }
-      // In development, allow but log
-      console.warn(`⚠️  CORS: Allowing unknown origin in development: ${origin}`);
-      callback(null, true);
+      return callback(null, true);
     }
+    
+    // Allow Vercel preview deployments (pattern: *.vercel.app)
+    if (origin.includes('.vercel.app')) {
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`✅ CORS: Allowing Vercel preview deployment: ${origin}`);
+      }
+      return callback(null, true);
+    }
+    
+    // Allow Vercel production deployments (pattern: *.vercel.app or custom domain)
+    if (origin.includes('vercel.app') || origin.includes('vercel.com')) {
+      if (process.env.NODE_ENV === 'production') {
+        console.log(`✅ CORS: Allowing Vercel deployment: ${origin}`);
+      }
+      return callback(null, true);
+    }
+    
+    // In production, reject unknown origins
+    if (process.env.NODE_ENV === 'production') {
+      console.error(`❌ CORS: Blocked request from origin: ${origin}`);
+      console.error(`   Allowed origins: ${normalizedOrigins.join(', ')}`);
+      console.error(`   💡 Tip: Add ${origin} to FRONTEND_URL environment variable in Render.com`);
+      return callback(new Error(`CORS: Origin ${origin} not allowed. Add it to FRONTEND_URL env var.`));
+    }
+    // In development, allow but log
+    console.warn(`⚠️  CORS: Allowing unknown origin in development: ${origin}`);
+    callback(null, true);
   },
   credentials: true,
 }));
@@ -194,7 +216,8 @@ app.use('/api/customers', customerRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/export', exportRoutes);
-app.use('/api/test', testRoutes); // Sentry test endpoints
+app.use('/api/test', testRoutes);
+app.use('/api/return-requests', returnRequestRoutes); // Sentry test endpoints
 
 // Setup Sentry error handler (must be AFTER routes but BEFORE other error handlers)
 setupSentryErrorHandler(app);

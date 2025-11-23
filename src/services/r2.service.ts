@@ -19,13 +19,27 @@ const PUBLIC_URL = process.env.R2_PUBLIC_URL;
  */
 export const uploadToR2 = async (
   file: Express.Multer.File,
-  folder: string = 'uploads'
+  folder: string = 'uploads',
+  customFilename?: string
 ): Promise<{ success: boolean; url?: string; error?: string }> => {
   try {
-    // Generate unique filename
-    const timestamp = Date.now();
-    const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const key = `${folder}/${timestamp}-${sanitizedFilename}`;
+    // Use custom filename if provided, otherwise generate unique filename
+    let filename: string;
+    if (customFilename) {
+      // Sanitize custom filename
+      filename = customFilename.replace(/[^a-zA-Z0-9.-]/g, '_');
+      // Ensure it has an extension
+      const originalExt = file.originalname.split('.').pop();
+      if (!filename.includes('.')) {
+        filename = `${filename}.${originalExt || 'jpg'}`;
+      }
+    } else {
+      // Generate unique filename
+      const timestamp = Date.now();
+      const sanitizedFilename = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+      filename = `${timestamp}-${sanitizedFilename}`;
+    }
+    const key = `${folder}/${filename}`;
 
     // Upload to R2
     const command = new PutObjectCommand({
